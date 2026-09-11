@@ -35,7 +35,7 @@ nice -n 15 ionice -c 3 cmake --build build -- -j1
 Standalone domain tests:
 
 ```sh
-modules/mod-crafting-orders/t/run_tests.sh
+./t/run_tests.sh
 ```
 
 ## Configuration
@@ -77,6 +77,11 @@ you want live, then enable `CraftingOrders.Enable`.
 Install `addon/CraftingOrders/` into the client's `Interface/AddOns/` directory.
 Interface version is 11200. The addon is the presentation layer only; the server
 revalidates profession, spell, item, price, bags, and distance on every request.
+
+The UI supports multi-page lists, makeable/tier filters, selectable quantities,
+and confirmation before replacing a permanent enchant. Client requests use a
+Vanilla-compatible guild addon packet that the Tortoise packet hook consumes
+before normal guild routing.
 
 ## Rollback
 

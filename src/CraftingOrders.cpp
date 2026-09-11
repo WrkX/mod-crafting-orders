@@ -21,6 +21,26 @@
 #include <memory>
 #include <sstream>
 
+namespace
+{
+// All deadlines in this module are short relative to the uint32 millisecond
+// clock's wrap period.  Signed subtraction keeps comparisons correct when the
+// clock wraps instead of treating a wrapped deadline as being far in the
+// future.
+bool DeadlineReached(uint32 now, uint32 deadline)
+{
+    return int32(now - deadline) >= 0;
+}
+
+bool IsConsumableReagent(Item* item)
+{
+    if (!item || item->IsInTrade())
+        return false;
+    Bag* bag = item->ToBag();
+    return !bag || bag->IsEmpty();
+}
+}
+
 CraftingOrders& CraftingOrders::Instance()
 {
     static CraftingOrders instance;
@@ -29,7 +49,7 @@ CraftingOrders& CraftingOrders::Instance()
 
 bool CraftingOrders::Enabled() const
 {
-    return sCraftingOrdersConfig.Enabled() && !_disabledForData;
+    return sCraftingOrdersConfig.Enabled() && _loaded && !_disabledForData;
 }
 
 NpcBinding const* CraftingOrders::GetNpcBinding(uint32 creatureEntry) const
@@ -53,12 +73,16 @@ uint32 CraftingOrders::GetNowMs() const
 
 void CraftingOrders::Load()
 {
+    // A reload must not retain sessions created under the previous config or
+    // NPC bindings.  In particular, a disable/re-enable cycle must require a
+    // fresh NPC interaction.
+    _sessions.clear();
+    _loaded = false;
     _disabledForData = false;
     sCraftingOrdersConfig.Load();
     if (!sCraftingOrdersConfig.Enabled())
     {
         sLog.outString("[mod-crafting-orders] Disabled by configuration.");
-        _loaded = false;
         return;
     }
 
@@ -78,7 +102,7 @@ void CraftingOrders::Update(uint32 diff)
         return;
 
     _elapsedMs += diff;
-    if (_elapsedMs >= _nextCleanupMs)
+    if (DeadlineReached(_elapsedMs, _nextCleanupMs))
     {
         CleanupExpiredCooldowns();
         _nextCleanupMs = _elapsedMs + 60000;
@@ -86,7 +110,7 @@ void CraftingOrders::Update(uint32 diff)
 
     for (auto it = _sessions.begin(); it != _sessions.end();)
     {
-        if (_elapsedMs >= it->second.expiresMs)
+        if (DeadlineReached(_elapsedMs, it->second.expiresMs))
             it = _sessions.erase(it);
         else
             ++it;
@@ -182,7 +206,18 @@ bool CraftingOrders::MakeRecipeData(uint32 spellId, uint32 skillLine, uint32 ski
     for (uint32 i = 0; i < MAX_SPELL_REAGENTS; ++i)
     {
         if (spellInfo->Reagent[i] > 0 && spellInfo->ReagentCount[i] > 0)
-            rd.materials.push_back({ uint32(spellInfo->Reagent[i]), spellInfo->ReagentCount[i] });
+        {
+            uint32 const itemId = uint32(spellInfo->Reagent[i]);
+            uint32 const count = spellInfo->ReagentCount[i];
+            auto existing = std::find_if(rd.materials.begin(), rd.materials.end(), [itemId](CraftMaterial const& mat)
+            {
+                return mat.itemId == itemId;
+            });
+            if (existing == rd.materials.end())
+                rd.materials.push_back({ itemId, count });
+            else if (!CraftingOrdersDomain::CheckedAddU32(existing->count, count, existing->count))
+                return false;
+        }
     }
     return rd.goldFeeMultiplier > 0.0f;
 }
@@ -389,7 +424,18 @@ bool CraftingOrders::ValidateMaterials(RecipeData const& recipe, Player* player,
             error = "reagent total overflow";
             return false;
         }
-        if (player->GetItemCount(mat.itemId) < needed)
+        // Player::GetItemCount includes items currently in trade, while
+        // DestroyItemCount deliberately skips those items.  Counting with
+        // the former and consuming with the latter would allow a craft to
+        // proceed without actually consuming all of its reagents.  Count
+        // the same inventory set that the non-bank destruction path can use.
+        uint64 available = 0;
+        player->ApplyForAllItems([&](Item* item)
+        {
+            if (item && item->GetEntry() == mat.itemId && IsConsumableReagent(item))
+                available += item->GetCount();
+        });
+        if (available < needed)
         {
             error = "You do not have the required materials";
             return false;
@@ -527,7 +573,7 @@ bool CraftingOrders::ValidateSession(Player* player, uint32 expectedService, std
         error = "no active NPC session";
         return false;
     }
-    if (GetNowMs() >= session->expiresMs)
+    if (DeadlineReached(GetNowMs(), session->expiresMs))
     {
         CloseSession(player);
         error = "session expired";
@@ -683,15 +729,119 @@ bool CraftingOrders::Craft(Player* player, uint32 spellId, uint32 quantity, std:
         return false;
     }
 
+    // Snapshot reagent stacks before storing the result.  This matters for
+    // the (unusual but valid) recipe where the crafted item is also one of
+    // its reagents: StoreNewItem may merge the output into an existing stack,
+    // and a subsequent DestroyItemCount(itemId, ...) would otherwise destroy
+    // part of the newly crafted output as well.
+    struct MaterialSource
+    {
+        uint32 itemGuidLow;
+        uint32 count;
+    };
+    struct MaterialPlan
+    {
+        uint32 itemId;
+        uint32 count;
+        std::vector<MaterialSource> sources;
+    };
+    std::vector<MaterialPlan> materialPlans;
     for (CraftMaterial const& mat : recipe->materials)
     {
         uint32 needed = 0;
         CraftingOrdersDomain::TotalReagentCount(mat.count, qty, needed);
-        player->DestroyItemCount(mat.itemId, needed, true, false);
+
+        MaterialPlan* plan = nullptr;
+        for (MaterialPlan& candidate : materialPlans)
+        {
+            if (candidate.itemId == mat.itemId)
+            {
+                plan = &candidate;
+                break;
+            }
+        }
+        if (!plan)
+        {
+            materialPlans.push_back({ mat.itemId, needed, {} });
+            plan = &materialPlans.back();
+        }
+        else if (!CraftingOrdersDomain::CheckedAddU32(plan->count, needed, plan->count))
+        {
+            result = "reagent total overflow";
+            return false;
+        }
+
+    }
+    for (MaterialPlan& plan : materialPlans)
+    {
+        uint64 available = 0;
+        player->ApplyForAllItems([&](Item* item)
+        {
+            if (item && item->GetEntry() == plan.itemId && IsConsumableReagent(item))
+            {
+                plan.sources.push_back({ item->GetGUIDLow(), item->GetCount() });
+                available += item->GetCount();
+            }
+        });
+        if (available < plan.count)
+        {
+            result = "Crafting inventory changed; please try again";
+            return false;
+        }
+    }
+
+    // Store the result before charging the player.  CanStoreNewItem is only a
+    // preflight check; item creation/storage can still fail (for example if
+    // an item hook rejects it).  Never consume reagents or gold until the
+    // result is known to be in the player's inventory.
+    Item* created = player->StoreNewItem(dest, recipe->createdItemId, true, 0);
+    if (!created)
+    {
+        sLog.outError("[mod-crafting-orders] Failed to store crafted item %u for player %u after a successful inventory preflight.",
+            recipe->createdItemId, player->GetGUIDLow());
+        result = "Failed to create crafted item; no materials or fee were charged";
+        return false;
+    }
+
+    for (MaterialPlan const& plan : materialPlans)
+    {
+        uint32 remaining = plan.count;
+        for (MaterialSource const& source : plan.sources)
+        {
+            if (!remaining)
+                break;
+            Item* sourceItem = player->GetItemByGuid(ObjectGuid(HIGHGUID_ITEM, source.itemGuidLow));
+            if (!sourceItem || sourceItem->GetEntry() != plan.itemId || !IsConsumableReagent(sourceItem))
+            {
+                sLog.outError("[mod-crafting-orders] Reagent %u changed during craft commit for player %u after storing crafted item.",
+                    plan.itemId, player->GetGUIDLow());
+                result = "Crafting inventory changed unexpectedly; please contact a game master";
+                return false;
+            }
+            uint32 requested = std::min(remaining, source.count);
+            uint32 unremoved = requested;
+            // Use the item-specific overload so an output merged into a
+            // reagent stack is not included in the amount consumed.
+            player->DestroyItemCount(sourceItem, unremoved, true);
+            remaining -= requested - unremoved;
+            if (unremoved)
+            {
+                sLog.outError("[mod-crafting-orders] Failed to consume reagent %u for player %u after storing crafted item.",
+                    plan.itemId, player->GetGUIDLow());
+                result = "Failed to consume all crafting materials; please contact a game master";
+                return false;
+            }
+        }
+        if (remaining)
+        {
+            sLog.outError("[mod-crafting-orders] Reagent plan for item %u was incomplete for player %u after storing crafted item.",
+                plan.itemId, player->GetGUIDLow());
+            result = "Failed to consume all crafting materials; please contact a game master";
+            return false;
+        }
     }
     player->ModifyMoney(-int32(feeTotal));
-    if (Item* created = player->StoreNewItem(dest, recipe->createdItemId, true, 0))
-        player->SendNewItem(created, outputCount, true, false);
+    player->SendNewItem(created, outputCount, true, false);
 
     if (sCraftingOrdersConfig.EnforceCooldowns() && recipe->spellCooldownSecs > 0)
         SetCooldown(player, spellId, recipe->spellCooldownSecs);
@@ -738,8 +888,18 @@ bool CraftingOrders::Enchant(Player* player, uint32 spellId, uint32 bag, uint32 
         return false;
     }
 
+    // SetEnchantment is a void mutator and silently accepts an ID that is not
+    // present in SpellItemEnchantment.dbc.  Validate it before charging the
+    // player so malformed/stale recipe data cannot consume reagents and gold
+    // without applying a usable enchantment.
+    if (!sSpellItemEnchantmentStore.LookupEntry(recipe->enchantId))
+    {
+        result = "Could not resolve enchantment data";
+        return false;
+    }
+
     Item* item = FindOwnedItem(player, bag, slot);
-    if (!item || !item->IsFitToSpellRequirements(spellInfo))
+    if (!item || item->IsInTrade() || !item->IsFitToSpellRequirements(spellInfo))
     {
         result = "The selected item is no longer valid for that enchant";
         return false;
@@ -792,7 +952,7 @@ bool CraftingOrders::Disenchant(Player* player, uint32 bag, uint32 slot, std::st
     }
 
     Item* item = FindOwnedItem(player, bag, slot);
-    if (!item)
+    if (!item || item->IsInTrade())
     {
         result = "The selected item is no longer in your inventory";
         return false;
@@ -977,7 +1137,7 @@ bool CraftingOrders::HandIn(Player* player, uint32 itemGuidLow, std::string& res
     }
 
     Item* item = player->GetItemByGuid(ObjectGuid(HIGHGUID_ITEM, itemGuidLow));
-    if (!item || item->GetOwnerGuid() != player->GetObjectGuid())
+    if (!item || item->GetOwnerGuid() != player->GetObjectGuid() || item->IsInTrade())
     {
         result = "recipe item not found";
         return false;

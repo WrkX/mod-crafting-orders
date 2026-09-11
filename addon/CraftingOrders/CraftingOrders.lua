@@ -1,4 +1,4 @@
--- Vanilla/Turtle 1.12 Crafting Orders UI. Lua 5.0: no #table, use this/event/argN.
+-- Vanilla/Turtle 1.12 Crafting Orders UI using Lua 5.0 and this/event/argN.
 
 CRAFTING_ORDERS_PROTOCOL = 2;
 CRAFTING_ORDERS_MAX_ROWS = 12;
@@ -22,6 +22,9 @@ local State = {
     listFilter = "",
     listTier = 0,
     pendingPages = false,
+    viewOffset = 0,
+    quantity = 0,
+    pendingEnchant = nil,
 };
 
 local function tlen(t)
@@ -118,8 +121,9 @@ local function SendCO(opcode, payload)
     if payload and payload ~= "" then
         body = body.."\t"..payload;
     end
-    local me = UnitName("player");
-    SendAddonMessage("CO", body, "WHISPER", me);
+    -- Vanilla 1.12 cannot send addon whispers.  Tortoise consumes addon
+    -- messages sent on the guild chat path before normal chat handling.
+    SendAddonMessage("CO", body, "GUILD");
 end
 
 local function SetStatus(text)
@@ -133,6 +137,76 @@ local function SetActionText(text)
     if btn then
         btn:SetText(text or "Create");
     end
+end
+
+local function SetButtonEnabled(button, enabled)
+    if not button then
+        return;
+    end
+    if enabled then
+        button:Enable();
+    else
+        button:Disable();
+    end
+end
+
+local function SetQuantity(value)
+    local recipe = State.recipes[State.selected];
+    local maximum = recipe and tonumber(recipe.available or 0) or 0;
+    if recipe and recipe.cooldown and recipe.cooldown > 0 then
+        maximum = 0;
+    end
+    value = tonumber(value or 0) or 0;
+    if maximum < 0 then
+        maximum = 0;
+    end
+    if value < 0 then
+        value = 0;
+    end
+    if value > maximum then
+        value = maximum;
+    end
+    State.quantity = value;
+    if CraftingOrdersFrameQuantity then
+        CraftingOrdersFrameQuantity:SetText("Qty: "..tostring(value).."/"..tostring(maximum));
+    end
+    SetButtonEnabled(CraftingOrdersFrameQuantityDown, value > 1);
+    SetButtonEnabled(CraftingOrdersFrameQuantityUp, value < maximum);
+end
+
+local function UpdateNavigation()
+    local count = tlen(State.recipes);
+    local first = State.viewOffset + 1;
+    local last = State.viewOffset + CRAFTING_ORDERS_MAX_ROWS;
+    if last > count then
+        last = count;
+    end
+    if CraftingOrdersFramePage then
+        if count == 0 then
+            CraftingOrdersFramePage:SetText("0-0 / 0");
+        else
+            CraftingOrdersFramePage:SetText(tostring(first).."-"..tostring(last).." / "..tostring(count));
+        end
+    end
+    SetButtonEnabled(CraftingOrdersFramePrev, State.viewOffset > 0);
+    SetButtonEnabled(CraftingOrdersFrameNext, last < count);
+end
+
+local function UpdateListOptions()
+    local enabled = State.mode ~= MODE_HANDIN and State.service ~= 3 and not State.pendingPages;
+    if CraftingOrdersFrameFilter then
+        if State.listFilter == "MAKEABLE" then
+            CraftingOrdersFrameFilter:SetText("Makeable");
+        else
+            CraftingOrdersFrameFilter:SetText("All items");
+        end
+    end
+    if CraftingOrdersFrameTier then
+        local names = { "All tiers", "Apprentice", "Journeyman", "Expert", "Artisan" };
+        CraftingOrdersFrameTier:SetText(names[State.listTier + 1] or "All tiers");
+    end
+    SetButtonEnabled(CraftingOrdersFrameFilter, enabled);
+    SetButtonEnabled(CraftingOrdersFrameTier, enabled);
 end
 
 local function ParseRecipe(entry)
@@ -151,8 +225,9 @@ local function ParseRecipe(entry)
         made = tonumber(head[7] or "1") or 1,
         available = tonumber(head[8] or "0") or 0,
         subclass = unescape(head[9] or ""),
-        bag = tonumber(head[12] or "0") or 0,
-        slot = tonumber(head[13] or "0") or 0,
+        bag = State.service == 3 and (tonumber(head[12] or "0") or 0) or 0,
+        slot = State.service == 3 and (tonumber(head[13] or "0") or 0) or 0,
+        cooldown = State.service ~= 3 and (tonumber(head[13] or "0") or 0) or 0,
         materials = {},
         kind = "recipe",
     };
@@ -213,9 +288,11 @@ local function RefreshList()
     for i = 1, CRAFTING_ORDERS_MAX_ROWS do
         local btn = getglobal("CraftingOrdersRow"..i);
         if btn then
-            local recipe = State.recipes[i];
+            local absoluteIndex = State.viewOffset + i;
+            local recipe = State.recipes[absoluteIndex];
             if recipe then
                 btn:SetText(recipe.name);
+                btn.idx = absoluteIndex;
                 btn:Show();
             else
                 btn:SetText("");
@@ -224,6 +301,8 @@ local function RefreshList()
         end
     end
     CraftingOrders_Select(State.selected);
+    UpdateNavigation();
+    UpdateListOptions();
 end
 
 function CraftingOrders_Select(index)
@@ -235,26 +314,40 @@ function CraftingOrders_Select(index)
     end
     if not recipe then
         detail:SetText("");
+        SetQuantity(0);
         return;
     end
     if recipe.kind == "handin" then
         detail:SetText(recipe.name.."\nHand in this formula to unlock the recipe.");
+        SetQuantity(0);
         return;
     end
     if recipe.kind == "enchant_target" then
         detail:SetText(recipe.name.."\nSelect this item, then click Enchant.");
+        SetQuantity(0);
         return;
     end
     local lines = recipe.name.."\nSkill: "..recipe.reqRank.."\nFee: "..recipe.fee.."c\nCan make: "..recipe.available.."\n";
+    if recipe.cooldown and recipe.cooldown > 0 then
+        lines = lines.."Cooldown: active\n";
+    end
     local i;
     for i = 1, tlen(recipe.materials) do
         local mat = recipe.materials[i];
         lines = lines.."\n"..mat.count.."x "..mat.name.." ("..mat.have..")";
     end
     detail:SetText(lines);
+    if State.quantity == 0 or State.quantity > recipe.available then
+        SetQuantity(recipe.available > 0 and 1 or 0);
+    else
+        SetQuantity(State.quantity);
+    end
 end
 
 function CraftingOrders_OnLoad()
+    if RegisterAddonMessagePrefix then
+        RegisterAddonMessagePrefix("CO");
+    end
     local i;
     for i = 1, CRAFTING_ORDERS_MAX_ROWS do
         local btn = CreateFrame("Button", "CraftingOrdersRow"..i, CraftingOrdersFrame, "UIPanelButtonTemplate");
@@ -268,6 +361,136 @@ function CraftingOrders_OnLoad()
         end);
         btn:Hide();
     end
+
+    local page = CraftingOrdersFrame:CreateFontString("CraftingOrdersFramePage", "ARTWORK", "GameFontHighlightSmall");
+    page:SetPoint("BOTTOMLEFT", CraftingOrdersFrame, "BOTTOMLEFT", 88, 26);
+    page:SetWidth(85);
+    page:SetJustifyH("CENTER");
+    page:SetText("0-0 / 0");
+
+    local prev = CreateFrame("Button", "CraftingOrdersFramePrev", CraftingOrdersFrame, "UIPanelButtonTemplate");
+    prev:SetWidth(58);
+    prev:SetHeight(22);
+    prev:SetPoint("BOTTOMLEFT", CraftingOrdersFrame, "BOTTOMLEFT", 24, 20);
+    prev:SetText("Prev");
+    prev:SetScript("OnClick", function() CraftingOrders_PreviousPage(); end);
+
+    local next = CreateFrame("Button", "CraftingOrdersFrameNext", CraftingOrdersFrame, "UIPanelButtonTemplate");
+    next:SetWidth(58);
+    next:SetHeight(22);
+    next:SetPoint("BOTTOMLEFT", CraftingOrdersFrame, "BOTTOMLEFT", 180, 20);
+    next:SetText("Next");
+    next:SetScript("OnClick", function() CraftingOrders_NextPage(); end);
+
+    local filter = CreateFrame("Button", "CraftingOrdersFrameFilter", CraftingOrdersFrame, "UIPanelButtonTemplate");
+    filter:SetWidth(100);
+    filter:SetHeight(22);
+    filter:SetPoint("TOPLEFT", CraftingOrdersFrame, "TOPLEFT", 24, -22);
+    filter:SetScript("OnClick", function() CraftingOrders_ToggleFilter(); end);
+
+    local tier = CreateFrame("Button", "CraftingOrdersFrameTier", CraftingOrdersFrame, "UIPanelButtonTemplate");
+    tier:SetWidth(105);
+    tier:SetHeight(22);
+    tier:SetPoint("TOPLEFT", CraftingOrdersFrame, "TOPLEFT", 130, -22);
+    tier:SetScript("OnClick", function() CraftingOrders_CycleTier(); end);
+
+    local down = CreateFrame("Button", "CraftingOrdersFrameQuantityDown", CraftingOrdersFrame, "UIPanelButtonTemplate");
+    down:SetWidth(28);
+    down:SetHeight(22);
+    down:SetPoint("BOTTOMLEFT", CraftingOrdersFrame, "BOTTOMLEFT", 255, 20);
+    down:SetText("-");
+    down:SetScript("OnClick", function() SetQuantity(State.quantity - 1); end);
+
+    local quantity = CraftingOrdersFrame:CreateFontString("CraftingOrdersFrameQuantity", "ARTWORK", "GameFontHighlightSmall");
+    quantity:SetPoint("BOTTOMLEFT", CraftingOrdersFrame, "BOTTOMLEFT", 285, 26);
+    quantity:SetWidth(60);
+    quantity:SetJustifyH("CENTER");
+    quantity:SetText("Qty: 0/0");
+
+    local up = CreateFrame("Button", "CraftingOrdersFrameQuantityUp", CraftingOrdersFrame, "UIPanelButtonTemplate");
+    up:SetWidth(28);
+    up:SetHeight(22);
+    up:SetPoint("BOTTOMLEFT", CraftingOrdersFrame, "BOTTOMLEFT", 348, 20);
+    up:SetText("+");
+    up:SetScript("OnClick", function() SetQuantity(State.quantity + 1); end);
+
+    StaticPopupDialogs = StaticPopupDialogs or {};
+    StaticPopupDialogs["CRAFTING_ORDERS_ENCHANT_CONFIRM"] = {
+        text = "Apply this enchant? An existing enchant may be overwritten.",
+        button1 = "Apply",
+        button2 = "Cancel",
+        OnAccept = function() CraftingOrders_ConfirmEnchant(); end,
+        OnCancel = function() State.pendingEnchant = nil; end,
+        timeout = 0,
+        whileDead = 1,
+        hideOnEscape = 1,
+    };
+
+    UpdateListOptions();
+    UpdateNavigation();
+end
+
+function CraftingOrders_PreviousPage()
+    if State.viewOffset <= 0 then
+        return;
+    end
+    State.viewOffset = State.viewOffset - CRAFTING_ORDERS_MAX_ROWS;
+    if State.viewOffset < 0 then
+        State.viewOffset = 0;
+    end
+    if State.recipes[State.viewOffset + 1] then
+        State.selected = State.viewOffset + 1;
+    end
+    RefreshList();
+end
+
+function CraftingOrders_NextPage()
+    if State.viewOffset + CRAFTING_ORDERS_MAX_ROWS >= tlen(State.recipes) then
+        return;
+    end
+    State.viewOffset = State.viewOffset + CRAFTING_ORDERS_MAX_ROWS;
+    if State.recipes[State.viewOffset + 1] then
+        State.selected = State.viewOffset + 1;
+    end
+    RefreshList();
+end
+
+local RequestRecipesPage;
+
+local function ReloadRecipes()
+    if State.mode == MODE_HANDIN or State.service == 3 then
+        return;
+    end
+    State.recipes = {};
+    State.selected = 0;
+    State.viewOffset = 0;
+    State.pendingPages = true;
+    SetStatus("Loading...");
+    UpdateListOptions();
+    RequestRecipesPage(0);
+end
+
+function CraftingOrders_ToggleFilter()
+    if State.mode == MODE_HANDIN or State.service == 3 then
+        return;
+    end
+    if State.listFilter == "MAKEABLE" then
+        State.listFilter = "";
+    else
+        State.listFilter = "MAKEABLE";
+    end
+    ReloadRecipes();
+end
+
+function CraftingOrders_CycleTier()
+    if State.mode == MODE_HANDIN or State.service == 3 then
+        return;
+    end
+    State.listTier = State.listTier + 1;
+    if State.listTier > 4 then
+        State.listTier = 0;
+    end
+    ReloadRecipes();
 end
 
 function CraftingOrders_OnHide()
@@ -287,18 +510,40 @@ function CraftingOrders_Craft()
         return;
     end
     if State.mode == MODE_ENCHANT_TARGETS or recipe.kind == "enchant_target" then
-        SendCO("ENCHANT", tostring(recipe.spellId).."\t"..tostring(recipe.bag).."\t"..tostring(recipe.slot));
+        State.pendingEnchant = recipe;
+        if StaticPopupDialogs and StaticPopup_Show then
+            StaticPopup_Show("CRAFTING_ORDERS_ENCHANT_CONFIRM", recipe.name);
+        else
+            CraftingOrders_ConfirmEnchant();
+        end
         return;
     end
     if State.service == 3 then
         SendCO("DISENCHANT", tostring(recipe.bag).."\t"..tostring(recipe.slot));
         return;
     end
+    if recipe.available < 1 or State.quantity < 1 then
+        if recipe.cooldown and recipe.cooldown > 0 then
+            SetStatus("This recipe is on cooldown.");
+        else
+            SetStatus("You do not have enough materials for one item.");
+        end
+        return;
+    end
     if State.service == 2 and recipe.itemId == 0 then
         SendCO("REQUEST_ENCHANT_TARGETS", tostring(recipe.spellId));
         return;
     end
-    SendCO("CRAFT", tostring(recipe.spellId).."\t1");
+    SendCO("CRAFT", tostring(recipe.spellId).."\t"..tostring(State.quantity));
+end
+
+function CraftingOrders_ConfirmEnchant()
+    local recipe = State.pendingEnchant;
+    State.pendingEnchant = nil;
+    if not recipe then
+        return;
+    end
+    SendCO("ENCHANT", tostring(recipe.spellId).."\t"..tostring(recipe.bag).."\t"..tostring(recipe.slot));
 end
 
 local function ShowFrame(title)
@@ -306,7 +551,9 @@ local function ShowFrame(title)
     CraftingOrdersFrame:Show();
 end
 
-local function RequestRecipesPage(page)
+RequestRecipesPage = function(page)
+    State.pendingPages = true;
+    UpdateListOptions();
     SendCO("REQUEST_RECIPES", State.listFilter.."\t"..tostring(State.listTier).."\t"..tostring(page));
 end
 
@@ -335,6 +582,7 @@ local function FinishList(status)
         end
         SetStatus(tlen(State.recipes).." recipes.");
     end
+    State.viewOffset = 0;
     RefreshList();
     ShowFrame(State.professionName);
 end
@@ -354,6 +602,8 @@ local function HandleComplete(opcode, payload, page, totalPages)
         State.listFilter = "";
         State.listTier = 0;
         State.pendingPages = false;
+        State.viewOffset = 0;
+        State.quantity = 0;
         ShowFrame(State.professionName);
         if State.mode == MODE_HANDIN then
             SetActionText("Hand in");
@@ -373,6 +623,7 @@ local function HandleComplete(opcode, payload, page, totalPages)
         if page == 0 then
             State.recipes = {};
             State.selected = 0;
+            State.viewOffset = 0;
         end
         AppendParsed(splitEscaped(payload, "|"), ParseRecipe);
         if page + 1 < totalPages then
@@ -400,6 +651,7 @@ local function HandleComplete(opcode, payload, page, totalPages)
         if page == 0 then
             State.recipes = {};
             State.selected = 0;
+            State.viewOffset = 0;
         end
         State.mode = MODE_HANDIN;
         SetActionText("Hand in");
@@ -466,6 +718,8 @@ local function HandleComplete(opcode, payload, page, totalPages)
     end
 
     if opcode == "ERROR" then
+        State.pendingPages = false;
+        UpdateListOptions();
         SetStatus(payload);
         if payload == "protocol version mismatch" then
             CraftingOrdersFrame:Hide();

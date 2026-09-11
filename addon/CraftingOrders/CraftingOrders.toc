@@ -3,4 +3,3 @@
 ## Notes: Client UI for Tortoise crafting-order NPCs.
 ## Version: 1.0
 CraftingOrders.xml
-CraftingOrders.lua

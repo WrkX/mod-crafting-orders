@@ -71,6 +71,18 @@ int main()
     auto ovs = ParseRecipeOverrides("3275,129,0.0;12044,197,2.5;nope");
     Expect(ovs.size() == 2, "parse overrides");
     Expect(ovs[0].multiplier == 0.0f, "override disable");
+    auto nonFiniteOvs = ParseRecipeOverrides("1,197,nan;2,197,inf;3,197,-inf;4,197,2.0");
+    Expect(nonFiniteOvs.size() == 1 && nonFiniteOvs[0].spellId == 4,
+        "reject non-finite override multipliers");
+
+    input.recipeMultiplier = std::numeric_limits<float>::quiet_NaN();
+    Expect(CalculateRecipeFee(input, fees) == 0, "reject NaN recipe multiplier");
+    input.recipeMultiplier = std::numeric_limits<float>::infinity();
+    Expect(CalculateRecipeFee(input, fees) == 0, "reject infinite recipe multiplier");
+    input.recipeMultiplier = 1.0f;
+    fees.tierMultiplier[TIER_ARTISAN] = std::numeric_limits<float>::quiet_NaN();
+    Expect(CalculateRecipeFee(input, fees) == 0, "reject NaN tier multiplier");
+    fees.tierMultiplier[TIER_ARTISAN] = 4.0f;
 
     auto allow = ParseIdList("10;20;10;30");
     auto deny = ParseIdList("20");
@@ -92,6 +104,8 @@ int main()
     ProtocolRequest ok = ParseProtocolPayload("2\t7\tCRAFT\t12345\t2");
     Expect(ok.valid && ok.version == 2 && ok.requestId == 7 && ok.opcode == "CRAFT", "parse craft");
     Expect(ok.fields.size() >= 2 && ok.fields[0] == "12345", "craft fields");
+    ProtocolRequest wideRequest = ParseProtocolPayload("2\t4000000000\tCLOSE");
+    Expect(wideRequest.valid && wideRequest.requestId == 4000000000u, "accept full-width request id");
     ProtocolRequest badOp = ParseProtocolPayload("2\t1\tcraft");
     Expect(!badOp.valid, "reject lowercase opcode");
     Expect(ADDON_PROTOCOL_VERSION == 2, "addon protocol version is 2");
@@ -125,10 +139,48 @@ int main()
     Expect(chunked.chunks.size() > 1, "multiple chunks for small size");
     Expect(AssembleChunks(chunked.chunks) == JoinRecords(recs), "reassembly does not insert extra separators");
     for (std::string const& chunk : chunked.chunks)
-        Expect(chunk.size() <= 12 || chunk.back() == '|', "chunk stays on record boundary");
+        Expect(chunk.size() <= 12, "chunk stays within payload limit");
 
     auto tooBig = ChunkRecords(std::vector<std::string>{"abcdefghijklmnop"}, 8);
-    Expect(tooBig.recordTooLarge && tooBig.chunks.empty(), "record larger than chunk is an error");
+    Expect(!tooBig.recordTooLarge && !tooBig.overflow && tooBig.chunks.size() == 2,
+        "record larger than chunk is split");
+    Expect(AssembleChunks(tooBig.chunks) == "abcdefghijklmnop", "long record reassembles exactly");
+
+    std::string escapedLong = "abcdef\\|ghijklmnopqrstuvwxyz";
+    auto escapedChunked = ChunkRecords(std::vector<std::string>{escapedLong}, 8);
+    Expect(!escapedChunked.recordTooLarge && escapedChunked.chunks.size() > 1,
+        "escaped long record is split");
+    Expect(AssembleChunks(escapedChunked.chunks) == escapedLong,
+        "escaped long record preserves escape sequence across chunks");
+    Expect(JoinRecords(SplitUnescaped(AssembleChunks(escapedChunked.chunks), '|')) == escapedLong,
+        "reassembled escaped record remains one record");
+
+    auto impossibleLong = ChunkRecords(std::vector<std::string>{std::string(17, 'x')}, 8, 2);
+    Expect(impossibleLong.recordTooLarge && impossibleLong.chunks.empty(),
+        "record exceeding page chunk budget is rejected");
+
+    auto emptyPayload = ChunkPayload("");
+    Expect(!emptyPayload.overflow && !emptyPayload.recordTooLarge && emptyPayload.chunks.size() == 1 &&
+        emptyPayload.chunks[0].empty(), "empty payload still emits one chunk");
+
+    std::vector<std::string> longPages{"1234567890123456", "abc", "defghijk"};
+    auto longPage0 = PaginateRecords(longPages, 0, 8, 2);
+    Expect(!longPage0.pageOutOfRange && !longPage0.recordTooLarge && longPage0.totalPages == 2,
+        "pagination accounts for chunks used by long record");
+    Expect(longPage0.records.size() == 1 && AssembleChunks(ChunkRecords(longPage0.records, 8, 2).chunks) == "1234567890123456",
+        "first page contains complete long record");
+    auto longPage1 = PaginateRecords(longPages, 1, 8, 2);
+    Expect(!longPage1.pageOutOfRange && longPage1.records.size() == 2,
+        "second page starts at record boundary");
+    auto longPage1Chunks = ChunkRecords(longPage1.records, 8, 2);
+    Expect(!longPage1Chunks.overflow && AssembleChunks(longPage1Chunks.chunks) == JoinRecords(longPage1.records),
+        "second page reassembles without inserted separators");
+
+    std::vector<std::string> exactBoundaryPages{"x", std::string(16, 'y'), "z"};
+    auto exactBoundaryPage1 = PaginateRecords(exactBoundaryPages, 1, 8, 2);
+    Expect(!exactBoundaryPage1.recordTooLarge && exactBoundaryPage1.records.size() == 1 &&
+        exactBoundaryPage1.records[0] == std::string(16, 'y'),
+        "record starting a new page uses the complete page byte budget");
 
     std::vector<std::string> many;
     for (int i = 0; i < 20; ++i)
@@ -163,6 +215,7 @@ int main()
     Expect(handin.taughtSpell == 999, "hand-in taught spell");
     Expect(!ParseHandInRecord("0,1,x").valid, "reject zero guid hand-in");
     Expect(!ParseHandInRecord("not-a-guid").valid, "reject malformed hand-in");
+    Expect(ParseHandInRecord("4000000000,1,name").valid, "accept full-width item guid");
 
     Expect(IsSupportedProfession(PROF_JEWELCRAFTING), "turtle jewelcrafting");
     Expect(!IsSupportedProfession(773), "inscription deferred");

@@ -61,30 +61,35 @@ void CraftingOrders::LoadNpcBindings()
             continue;
         }
 
-        if (binding.entry >= NPC_ENTRY_MIN && binding.entry <= NPC_ENTRY_MAX)
+        std::unique_ptr<QueryResult> existing(WorldDatabase.PQuery(
+            "SELECT name, script_name FROM creature_template WHERE entry = %u", binding.entry));
+        if (!existing)
         {
-            std::unique_ptr<QueryResult> existing(WorldDatabase.PQuery(
-                "SELECT name, script_name FROM creature_template WHERE entry = %u", binding.entry));
-            if (!existing)
+            sLog.outError("[mod-crafting-orders] Bound creature %u is missing from creature_template.", binding.entry);
+            binding.available = false;
+        }
+        else
+        {
+            Field* cfields = existing->Fetch();
+            std::string scriptName = cfields[1].GetCppString();
+            bool ours = scriptName == "crafting_order" ||
+                        scriptName == "crafting_order_enchant" ||
+                        scriptName == "crafting_order_disenchant";
+            if (!ours)
             {
-                sLog.outError("[mod-crafting-orders] Reserved creature %u is missing from creature_template.", binding.entry);
-                binding.available = false;
-            }
-            else
-            {
-                Field* cfields = existing->Fetch();
-                std::string scriptName = cfields[1].GetCppString();
-                bool ours = scriptName == "crafting_order" ||
-                            scriptName == "crafting_order_enchant" ||
-                            scriptName == "crafting_order_disenchant";
-                if (!ours)
+                if (binding.entry >= NPC_ENTRY_MIN && binding.entry <= NPC_ENTRY_MAX)
                 {
                     sLog.outError("[mod-crafting-orders] Creature entry %u is occupied by '%s' / script '%s'; refusing to bind.",
                         binding.entry, cfields[0].GetCppString().c_str(), scriptName.c_str());
-                    binding.available = false;
                 }
-                binding.scriptName = scriptName;
+                else
+                {
+                    sLog.outError("[mod-crafting-orders] Creature entry %u uses script '%s'; set a crafting-orders script before binding it.",
+                        binding.entry, scriptName.c_str());
+                }
+                binding.available = false;
             }
+            binding.scriptName = scriptName;
         }
 
         _npcBindings[binding.entry] = binding;

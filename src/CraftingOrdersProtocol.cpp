@@ -16,6 +16,7 @@
 #include "WorldPacket.h"
 #include "WorldSession.h"
 #include <algorithm>
+#include <limits>
 #include <sstream>
 
 namespace
@@ -81,6 +82,20 @@ namespace
             return 0;
         return 1;
     }
+
+    uint32 ConsumableItemCount(Player* player, uint32 itemId)
+    {
+        uint64 count = 0;
+        player->ApplyForAllItems([&](Item* item)
+        {
+            Bag* bag = item ? item->ToBag() : nullptr;
+            if (item && item->GetEntry() == itemId && !item->IsInTrade() && (!bag || bag->IsEmpty()))
+                count += item->GetCount();
+        });
+        return count > std::numeric_limits<uint32>::max()
+            ? std::numeric_limits<uint32>::max()
+            : uint32(count);
+    }
 }
 
 void CraftingOrders::SendAddon(Player* player, uint32 requestId, std::string const& opcode, std::string const& payload, uint32 page, uint32 totalPages)
@@ -128,10 +143,11 @@ std::vector<std::string> CraftingOrders::BuildRecipeRecords(Player* player, uint
     {
         if (tier > 0 && recipe.skillTier != tier)
             continue;
+        uint32 const remaining = RemainingCooldown(player, recipe.spellId);
         if (makeableOnly)
         {
             std::string ignored;
-            if (!ValidateMaterials(recipe, player, 1, ignored))
+            if (remaining || !ValidateMaterials(recipe, player, 1, ignored))
                 continue;
         }
         else if (!filter.empty() && filter != "MAKEABLE")
@@ -145,17 +161,16 @@ std::vector<std::string> CraftingOrders::BuildRecipeRecords(Player* player, uint
         ItemPrototype const* itemTmpl = sObjectMgr.GetItemPrototype(recipe.createdItemId);
         std::string itemName = itemTmpl ? itemTmpl->Name1 : recipe.displayName;
         uint32 goldFee = CalculateGoldFee(recipe);
-        uint32 remaining = RemainingCooldown(player, recipe.spellId);
         uint32 numAvailable = 0;
         std::string ignored;
-        if (ValidateMaterials(recipe, player, 1, ignored))
+        if (!remaining && ValidateMaterials(recipe, player, 1, ignored))
         {
             numAvailable = sCraftingOrdersConfig.MaxQuantity();
             for (CraftMaterial const& mat : recipe.materials)
             {
                 if (!mat.count)
                     continue;
-                uint32 canMake = player->GetItemCount(mat.itemId) / mat.count;
+                uint32 canMake = ConsumableItemCount(player, mat.itemId) / mat.count;
                 if (canMake < numAvailable)
                     numAvailable = canMake;
             }
@@ -181,7 +196,7 @@ std::vector<std::string> CraftingOrders::BuildRecipeRecords(Player* player, uint
             std::string matName = matTmpl ? matTmpl->Name1 : "Unknown";
             ss << ";" << mat.itemId << "," << mat.count << ","
                << CraftingOrdersDomain::EscapeField(matName) << ",,"
-               << player->GetItemCount(mat.itemId);
+               << ConsumableItemCount(player, mat.itemId);
         }
         records.push_back(ss.str());
     }
@@ -507,7 +522,8 @@ bool CraftingOrders::HandleAddonPacket(WorldSession* session, WorldPacket const&
     if (req.opcode == "HANDIN")
     {
         uint32 itemGuid = 0;
-        if (req.fields.empty() || !CraftingOrdersDomain::ParseU32(req.fields[0], itemGuid))
+        if (req.fields.empty() || !CraftingOrdersDomain::ParseU32(
+                req.fields[0], itemGuid, std::numeric_limits<uint32>::max()))
         {
             finish("HANDIN_RESULT", "FAIL\tbad item");
             return false;

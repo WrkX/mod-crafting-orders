@@ -1,6 +1,15 @@
 #include "CraftingOrders.h"
 #include "Config/Config.h"
 #include "Log.h"
+#include <cmath>
+
+namespace
+{
+    float NonNegativeFinite(float value)
+    {
+        return std::isfinite(value) && value >= 0.0f ? value : 0.0f;
+    }
+}
 
 CraftingOrdersConfig& CraftingOrdersConfig::Instance()
 {
@@ -30,18 +39,21 @@ void CraftingOrdersConfig::Load()
         maxQuantity = int32(CraftingOrdersDomain::MAX_QUANTITY_HARD);
     _maxQuantity = uint32(maxQuantity);
 
-    _fees.defaultFeePercent = sConfig.GetFloatDefault("CraftingOrders.DefaultFeePercent", 1.0f);
-    if (_fees.defaultFeePercent < 0.0f)
-        _fees.defaultFeePercent = 0.0f;
+    _fees.defaultFeePercent = NonNegativeFinite(
+        sConfig.GetFloatDefault("CraftingOrders.DefaultFeePercent", 1.0f));
     int32 enchantFee = sConfig.GetIntDefault("CraftingOrders.EnchantFeePerSkillPoint", int32(CraftingOrdersDomain::SILVER));
     _fees.enchantFeePerSkillPoint = enchantFee < 0 ? 0 : uint32(enchantFee);
     int32 minFee = sConfig.GetIntDefault("CraftingOrders.MinFeeCopper", int32(CraftingOrdersDomain::MIN_FEE_DEFAULT));
     _fees.minFeeCopper = minFee < 0 ? 0 : uint32(minFee);
 
-    _fees.tierMultiplier[CraftingOrdersDomain::TIER_APPRENTICE] = sConfig.GetFloatDefault("CraftingOrders.FeeMultiplier.Apprentice", 1.0f);
-    _fees.tierMultiplier[CraftingOrdersDomain::TIER_JOURNEYMAN] = sConfig.GetFloatDefault("CraftingOrders.FeeMultiplier.Journeyman", 2.0f);
-    _fees.tierMultiplier[CraftingOrdersDomain::TIER_EXPERT] = sConfig.GetFloatDefault("CraftingOrders.FeeMultiplier.Expert", 3.0f);
-    _fees.tierMultiplier[CraftingOrdersDomain::TIER_ARTISAN] = sConfig.GetFloatDefault("CraftingOrders.FeeMultiplier.Artisan", 4.0f);
+    _fees.tierMultiplier[CraftingOrdersDomain::TIER_APPRENTICE] = NonNegativeFinite(
+        sConfig.GetFloatDefault("CraftingOrders.FeeMultiplier.Apprentice", 1.0f));
+    _fees.tierMultiplier[CraftingOrdersDomain::TIER_JOURNEYMAN] = NonNegativeFinite(
+        sConfig.GetFloatDefault("CraftingOrders.FeeMultiplier.Journeyman", 2.0f));
+    _fees.tierMultiplier[CraftingOrdersDomain::TIER_EXPERT] = NonNegativeFinite(
+        sConfig.GetFloatDefault("CraftingOrders.FeeMultiplier.Expert", 3.0f));
+    _fees.tierMultiplier[CraftingOrdersDomain::TIER_ARTISAN] = NonNegativeFinite(
+        sConfig.GetFloatDefault("CraftingOrders.FeeMultiplier.Artisan", 4.0f));
 
     _fees.disenchantFees = CraftingOrdersDomain::ParseFeeRanges(
         sConfig.GetStringDefault("CraftingOrders.Disenchant.Fees", "0-50:100;51-100:400;101-150:1000;151-999:2500"));

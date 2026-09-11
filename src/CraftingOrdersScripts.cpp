@@ -87,9 +87,11 @@ public:
         WORLDHOOK_ON_UPDATE
     }) {}
 
-    void OnAfterConfigLoad(bool /*reload*/) override
+    void OnAfterConfigLoad(bool reload) override
     {
         sCraftingOrdersConfig.Load();
+        if (reload)
+            sCraftingOrders.Load();
         if (!sCraftingOrdersConfig.Enabled())
             sLog.outString("[mod-crafting-orders] Module disabled.");
     }

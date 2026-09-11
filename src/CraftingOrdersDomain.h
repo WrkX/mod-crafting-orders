@@ -8,6 +8,7 @@
 #include <vector>
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 
 namespace CraftingOrdersDomain
 {
@@ -326,6 +327,8 @@ namespace CraftingOrdersDomain
             {
                 continue;
             }
+            if (!std::isfinite(ov.multiplier))
+                continue;
             overrides.push_back(ov);
         }
         return overrides;
@@ -371,7 +374,9 @@ namespace CraftingOrdersDomain
             tierMult = 0.0f;
 
         float recipeMult = input.recipeMultiplier;
-        if (recipeMult <= 0.0f)
+        if (!std::isfinite(recipeMult) || recipeMult <= 0.0f)
+            return 0;
+        if (!std::isfinite(tierMult))
             return 0;
 
         double raw = 0.0;
@@ -382,6 +387,10 @@ namespace CraftingOrdersDomain
         else
             raw = double(input.reagentSellTotal) * double(config.defaultFeePercent) * double(recipeMult) * double(tierMult);
 
+        // A malformed config multiplier must never result in a NaN-to-integer
+        // conversion.  Preserve the minimum-fee behavior for that case.
+        if (std::isnan(raw))
+            return config.minFeeCopper;
         if (raw < 0.0)
             raw = 0.0;
         if (raw > double(std::numeric_limits<uint32>::max()))
@@ -510,16 +519,19 @@ namespace CraftingOrdersDomain
     inline ChunkResult ChunkRecords(std::vector<std::string> const& records, uint32 chunkSize = MAX_CHUNK_PAYLOAD, uint32 maxChunks = MAX_RESPONSE_CHUNKS)
     {
         ChunkResult result;
+        if (chunkSize == 0 || maxChunks == 0)
+        {
+            result.overflow = true;
+            return result;
+        }
         if (records.empty())
         {
             result.chunks.emplace_back();
             return result;
         }
 
-        auto flush = [&](std::string& current, bool moreRecords) -> bool
+        auto flush = [&](std::string& current) -> bool
         {
-            if (moreRecords)
-                current.push_back('|');
             if (result.chunks.size() >= maxChunks)
             {
                 result.overflow = true;
@@ -533,35 +545,50 @@ namespace CraftingOrdersDomain
         };
 
         std::string current;
-        for (size_t i = 0; i < records.size(); ++i)
+        bool firstRecord = true;
+        for (std::string const& rec : records)
         {
-            std::string const& rec = records[i];
-            if (rec.size() > chunkSize)
+            // A record may span chunks.  Keep the complete escaped byte stream
+            // intact: the client concatenates chunks before splitting records,
+            // so splitting in the middle of an escape sequence is safe.
+            uint64 const recordChunks = uint64(rec.size()) / uint64(chunkSize) +
+                (uint64(rec.size()) % uint64(chunkSize) != 0 ? 1 : 0);
+            if (recordChunks > maxChunks)
             {
                 result.recordTooLarge = true;
                 result.chunks.clear();
                 return result;
             }
-
-            if (current.empty())
+            std::string prefix = firstRecord ? std::string() : std::string(1, '|');
+            firstRecord = false;
+            size_t offset = 0;
+            while (offset < prefix.size() ||
+                   (offset >= prefix.size() && offset - prefix.size() < rec.size()))
             {
-                current = rec;
-                continue;
-            }
+                if (current.size() == chunkSize && !flush(current))
+                    return result;
 
-            if (current.size() + 1 + rec.size() <= chunkSize)
-            {
-                current.push_back('|');
-                current += rec;
-                continue;
+                size_t const available = size_t(chunkSize) - current.size();
+                size_t const prefixRemaining = offset < prefix.size() ? prefix.size() - offset : 0;
+                size_t const recOffset = offset > prefix.size() ? offset - prefix.size() : 0;
+                size_t const recRemaining = recOffset < rec.size() ? rec.size() - recOffset : 0;
+                size_t const prefixCopyAvailable = std::min(available, prefixRemaining);
+                size_t const copyCount = prefixCopyAvailable +
+                    std::min(available - prefixCopyAvailable, recRemaining);
+                if (copyCount == 0)
+                    continue;
+                size_t const prefixCopy = std::min(copyCount, prefixRemaining);
+                if (prefixCopy != 0)
+                    current.append(prefix, offset, prefixCopy);
+                if (prefixCopy < copyCount)
+                    current.append(rec, recOffset, copyCount - prefixCopy);
+                offset += copyCount;
             }
-
-            if (!flush(current, true))
-                return result;
-            current = rec;
         }
-        if (!current.empty() && !flush(current, false))
+        if (!current.empty() && !flush(current))
             return result;
+        if (result.chunks.empty())
+            result.chunks.emplace_back();
         return result;
     }
 
@@ -591,20 +618,24 @@ namespace CraftingOrdersDomain
     {
         if (records.empty())
             return 1;
-        uint32 chunks = 1;
-        size_t used = 0;
-        for (std::string const& rec : records)
+        if (chunkSize == 0)
+            return std::numeric_limits<uint32>::max();
+
+        uint64 totalBytes = 0;
+        for (size_t i = 0; i < records.size(); ++i)
         {
-            size_t extra = used == 0 ? rec.size() : rec.size() + 1;
-            if (used + extra <= chunkSize)
-                used += extra;
-            else
-            {
-                ++chunks;
-                used = rec.size();
-            }
+            uint64 const separator = i == 0 ? 0u : 1u;
+            if (uint64(records[i].size()) > std::numeric_limits<uint64>::max() - separator)
+                return std::numeric_limits<uint32>::max();
+            uint64 const extra = uint64(records[i].size()) + separator;
+            if (totalBytes > std::numeric_limits<uint64>::max() - extra)
+                return std::numeric_limits<uint32>::max();
+            totalBytes += extra;
         }
-        return chunks;
+        uint64 const chunks = totalBytes / uint64(chunkSize) + (totalBytes % uint64(chunkSize) != 0 ? 1 : 0);
+        if (chunks > std::numeric_limits<uint32>::max())
+            return std::numeric_limits<uint32>::max();
+        return uint32(chunks == 0 ? 1 : chunks);
     }
 
     inline PagedRecords PaginateRecords(std::vector<std::string> const& records, uint32 page, uint32 chunkSize = MAX_CHUNK_PAYLOAD, uint32 maxChunks = MAX_RESPONSE_CHUNKS)
@@ -613,27 +644,57 @@ namespace CraftingOrdersDomain
         result.page = page;
         if (records.empty())
             return result;
+        if (chunkSize == 0 || maxChunks == 0)
+        {
+            result.recordTooLarge = true;
+            return result;
+        }
 
         std::vector<std::vector<std::string>> pages;
         std::vector<std::string> current;
+        uint64 currentBytes = 0;
         for (std::string const& rec : records)
         {
-            if (rec.size() > chunkSize)
+            // Pages are made only at record boundaries.  A single long record
+            // is valid when its split chunks fit the page's chunk budget.
+            uint64 const recordBytes = uint64(rec.size());
+            uint64 const recordChunks = recordBytes / uint64(chunkSize) +
+                (recordBytes % uint64(chunkSize) != 0 ? 1 : 0);
+            if (recordChunks > maxChunks)
             {
                 result.recordTooLarge = true;
                 return result;
             }
-            std::vector<std::string> trial = current;
-            trial.push_back(rec);
-            if (ChunksNeededForRecords(trial, chunkSize) <= maxChunks)
+            uint64 separator = current.empty() ? 0u : 1u;
+            bool fits = recordBytes <= std::numeric_limits<uint64>::max() - separator;
+            uint64 extra = fits ? recordBytes + separator : 0;
+            if (fits)
             {
-                current.push_back(rec);
-                continue;
+                fits = currentBytes <= std::numeric_limits<uint64>::max() - extra;
             }
-            if (!current.empty())
-                pages.push_back(current);
-            current.clear();
+            if (fits)
+            {
+                uint64 const candidateBytes = currentBytes + extra;
+                uint64 const candidateChunks = candidateBytes / uint64(chunkSize) +
+                    (candidateBytes % uint64(chunkSize) != 0 ? 1 : 0);
+                fits = candidateChunks <= maxChunks;
+            }
+            if (!fits && !current.empty())
+            {
+                pages.push_back(std::move(current));
+                current.clear();
+                currentBytes = 0;
+                separator = 0;
+                extra = recordBytes;
+                fits = recordChunks <= maxChunks;
+            }
+            if (!fits)
+            {
+                result.recordTooLarge = true;
+                return result;
+            }
             current.push_back(rec);
+            currentBytes += extra;
         }
         if (!current.empty())
             pages.push_back(std::move(current));
@@ -664,7 +725,7 @@ namespace CraftingOrdersDomain
         auto fields = SplitUnescaped(entry, ',');
         if (fields.size() < 3)
             return rec;
-        if (!ParseU32(UnescapeField(fields[0]), rec.itemGuid) || rec.itemGuid == 0)
+        if (!ParseU32(UnescapeField(fields[0]), rec.itemGuid, std::numeric_limits<uint32>::max()) || rec.itemGuid == 0)
             return rec;
         if (!ParseU32(UnescapeField(fields[1]), rec.itemId))
             return rec;
@@ -715,7 +776,7 @@ namespace CraftingOrdersDomain
             req.error = "bad version";
             return req;
         }
-        if (!ParseU32(parts[1], req.requestId))
+        if (!ParseU32(parts[1], req.requestId, std::numeric_limits<uint32>::max()))
         {
             req.error = "bad request id";
             return req;

@@ -7,7 +7,7 @@
 - Source module: [WoWGreymane/mod-crafting-Orders](https://github.com/WoWGreymane/mod-crafting-Orders)
 - Reviewed source revision: `81e1dc45e6750fd9ebe623a68a18486f47f76548`
 - Target branch: `codex/port-crafting-orders`
-- Plan state: implementation in progress (phases 0–7 scaffolded)
+- Plan state: phases 0–7 implemented; Phase 8 in-game release validation pending
 
 ## Objective
 
