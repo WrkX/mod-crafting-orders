@@ -1,0 +1,113 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+  <Script file="CraftingOrders.lua"/>
+
+  <Frame name="CraftingOrdersFrame" parent="UIParent" hidden="true" movable="true" enableMouse="true" toplevel="true">
+    <Size>
+      <AbsDimension x="520" y="420"/>
+    </Size>
+    <Anchors>
+      <Anchor point="CENTER"/>
+    </Anchors>
+    <Backdrop bgFile="Interface\DialogFrame\UI-DialogBox-Background" edgeFile="Interface\DialogFrame\UI-DialogBox-Border" tile="true">
+      <BackgroundInsets>
+        <AbsInset left="11" right="12" top="12" bottom="11"/>
+      </BackgroundInsets>
+      <TileSize>
+        <AbsValue val="32"/>
+      </TileSize>
+      <EdgeSize>
+        <AbsValue val="32"/>
+      </EdgeSize>
+    </Backdrop>
+    <Scripts>
+      <OnLoad>
+        this:RegisterEvent("CHAT_MSG_ADDON");
+        this:RegisterEvent("PLAYER_LOGOUT");
+        CraftingOrders_OnLoad();
+      </OnLoad>
+      <OnEvent>
+        CraftingOrders_OnEvent();
+      </OnEvent>
+      <OnMouseDown>
+        this:StartMoving();
+      </OnMouseDown>
+      <OnMouseUp>
+        this:StopMovingOrSizing();
+      </OnMouseUp>
+      <OnHide>
+        CraftingOrders_OnHide();
+      </OnHide>
+    </Scripts>
+    <Frames>
+      <Button name="$parentClose" inherits="UIPanelCloseButton">
+        <Anchors>
+          <Anchor point="TOPRIGHT">
+            <Offset>
+              <AbsDimension x="-5" y="-5"/>
+            </Offset>
+          </Anchor>
+        </Anchors>
+      </Button>
+      <Button name="$parentCraft">
+        <Size>
+          <AbsDimension x="120" y="24"/>
+        </Size>
+        <Anchors>
+          <Anchor point="BOTTOMRIGHT">
+            <Offset>
+              <AbsDimension x="-20" y="20"/>
+            </Offset>
+          </Anchor>
+        </Anchors>
+        <Scripts>
+          <OnClick>
+            CraftingOrders_Craft();
+          </OnClick>
+        </Scripts>
+        <NormalTexture file="Interface\Buttons\UI-Panel-Button-Up"/>
+        <PushedTexture file="Interface\Buttons\UI-Panel-Button-Down"/>
+        <HighlightTexture file="Interface\Buttons\UI-Panel-Button-Highlight" alphaMode="ADD"/>
+        <ButtonText>
+          <FontString inherits="GameFontNormal" text="Create"/>
+        </ButtonText>
+      </Button>
+    </Frames>
+    <Layers>
+      <Layer level="ARTWORK">
+        <FontString name="$parentTitle" inherits="GameFontNormalLarge" text="Crafting Orders">
+          <Anchors>
+            <Anchor point="TOP">
+              <Offset>
+                <AbsDimension x="0" y="-18"/>
+              </Offset>
+            </Anchor>
+          </Anchors>
+        </FontString>
+        <FontString name="$parentStatus" inherits="GameFontHighlightSmall" justifyH="LEFT">
+          <Size>
+            <AbsDimension x="470" y="16"/>
+          </Size>
+          <Anchors>
+            <Anchor point="BOTTOMLEFT">
+              <Offset>
+                <AbsDimension x="22" y="48"/>
+              </Offset>
+            </Anchor>
+          </Anchors>
+        </FontString>
+        <FontString name="$parentDetail" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP">
+          <Size>
+            <AbsDimension x="230" y="260"/>
+          </Size>
+          <Anchors>
+            <Anchor point="TOPRIGHT">
+              <Offset>
+                <AbsDimension x="-24" y="-50"/>
+              </Offset>
+            </Anchor>
+          </Anchors>
+        </FontString>
+      </Layer>
+    </Layers>
+  </Frame>
+</Ui>

@@ -1,0 +1,6 @@
+## Interface: 11200
+## Title: Crafting Orders
+## Notes: Client UI for Tortoise crafting-order NPCs.
+## Version: 1.0
+CraftingOrders.xml
+CraftingOrders.lua

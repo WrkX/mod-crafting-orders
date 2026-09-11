@@ -1,0 +1,111 @@
+[worldserver]
+
+###############################################
+# mod-crafting-orders
+###############################################
+#
+# Keep disabled until world/character migrations have been applied on a
+# staging copy. The module does not spawn NPCs automatically.
+#
+
+#
+#    CraftingOrders.Enable
+#        Master switch. 0: load no recipes and ignore gossip/addon traffic.
+#        Default: 0
+#
+
+CraftingOrders.Enable = 0
+
+#
+#    CraftingOrders.DefaultFeePercent
+#        Gold fee as a fraction of the crafted item's vendor sell price.
+#        Default: 1.0
+#
+
+CraftingOrders.DefaultFeePercent = 1.0
+
+#
+#    CraftingOrders.MinFeeCopper
+#        Minimum fee charged when an item has no vendor price. 0 disables the
+#        floor. Default: 1
+#
+
+CraftingOrders.MinFeeCopper = 1
+
+#
+#    CraftingOrders.EnchantFeePerSkillPoint
+#        Copper per required skill point for enchants with no created item.
+#        Default: 100 (1 silver)
+#
+
+CraftingOrders.EnchantFeePerSkillPoint = 100
+
+#
+#    CraftingOrders.FeeMultiplier.*
+#        Per-tier multipliers. Artisan is the highest Turtle rank.
+#
+
+CraftingOrders.FeeMultiplier.Apprentice = 1.0
+CraftingOrders.FeeMultiplier.Journeyman = 2.0
+CraftingOrders.FeeMultiplier.Expert = 3.0
+CraftingOrders.FeeMultiplier.Artisan = 4.0
+
+#
+#    CraftingOrders.MaxQuantity
+#        Maximum crafts per request (hard cap 100). Default: 20
+#
+
+CraftingOrders.MaxQuantity = 20
+
+#
+#    CraftingOrders.EnforceCooldowns
+#        Honour spell recovery times as order cooldowns. Default: 1
+#
+
+CraftingOrders.EnforceCooldowns = 1
+
+#
+#    CraftingOrders.AccountWideCooldowns
+#        Share cooldowns across the account using an explicit account scope
+#        row. Default: 0
+#
+
+CraftingOrders.AccountWideCooldowns = 0
+
+#
+#    CraftingOrders.RecipeOverrides
+#        spellId,professionId,multiplier;...  0.0 hides the recipe.
+#        Example: 3275,129,0.0
+#
+
+CraftingOrders.RecipeOverrides = ""
+
+#
+#    CraftingOrders.RecipeAllow / RecipeDeny
+#        Semicolon-separated spell IDs. Deny always wins. An empty allow list
+#        exposes every validated trainer/hand-in recipe that is not denied.
+#
+
+CraftingOrders.RecipeAllow = ""
+CraftingOrders.RecipeDeny = ""
+
+#
+#    CraftingOrders.Disenchant.Enable
+#        Default: 1
+#
+
+CraftingOrders.Disenchant.Enable = 1
+
+#
+#    CraftingOrders.Disenchant.Fees
+#        minIlvl-maxIlvl:copper;...
+#
+
+CraftingOrders.Disenchant.Fees = "0-50:100;51-100:400;101-150:1000;151-999:2500"
+
+#
+#    CraftingOrders.Disenchant.DefaultFee
+#        Copper fee when no range matches. Default: 10000
+#
+
+CraftingOrders.Disenchant.DefaultFee = 10000
