@@ -28,6 +28,8 @@ float CraftingOrdersConfig::RecipeMultiplier(uint32 professionId, uint32 spellId
 void CraftingOrdersConfig::Load()
 {
     _enabled = sConfig.GetBoolDefault("CraftingOrders.Enable", false);
+    _trainerGossipEnabled = sConfig.GetBoolDefault("CraftingOrders.TrainerGossip.Enable", true);
+    _enchantingDisenchantEnabled = sConfig.GetBoolDefault("CraftingOrders.TrainerGossip.EnchantingDisenchant", true);
     _enforceCooldowns = sConfig.GetBoolDefault("CraftingOrders.EnforceCooldowns", true);
     _accountWideCooldowns = sConfig.GetBoolDefault("CraftingOrders.AccountWideCooldowns", false);
     _disenchantEnabled = sConfig.GetBoolDefault("CraftingOrders.Disenchant.Enable", true);

@@ -60,6 +60,91 @@ NpcBinding const* CraftingOrders::GetNpcBinding(uint32 creatureEntry) const
     return &it->second;
 }
 
+bool CraftingOrders::ResolveNpcBinding(Creature const* creature, NpcBinding& binding) const
+{
+    if (!creature)
+        return false;
+
+    // Explicit bindings (the legacy crafting-order NPCs) take precedence and
+    // retain their configured service exactly as before.
+    if (NpcBinding const* configured = GetNpcBinding(creature->GetEntry()))
+    {
+        binding = *configured;
+        return true;
+    }
+
+    // Profession trainers are discovered from the core's already loaded
+    // trainer data.  No creature_template or script-name mutation is needed.
+    if (!creature->IsTrainer() || !creature->GetCreatureInfo() ||
+        creature->GetCreatureInfo()->trainer_type != TRAINER_TYPE_TRADESKILLS)
+        return false;
+
+    auto appendProfessions = [](TrainerSpellData const* data, std::vector<uint32>& professions)
+    {
+        if (!data)
+            return;
+        for (auto const& entry : data->spellList)
+        {
+            uint32 skill = entry.second.reqSkill;
+            if (CraftingOrdersDomain::IsSupportedProfession(skill))
+                professions.push_back(skill);
+        }
+    };
+
+    std::vector<uint32> professions;
+    appendProfessions(creature->GetTrainerSpells(), professions);
+    appendProfessions(creature->GetTrainerTemplateSpells(), professions);
+    std::sort(professions.begin(), professions.end());
+    professions.erase(std::unique(professions.begin(), professions.end()), professions.end());
+
+    // Prefer the lowest supported profession deterministically, but only when
+    // it actually has valid trainer recipes. This avoids adding an empty
+    // module menu to a trainer whose rows happen to use a supported skillline
+    // while all of its spells were filtered out during recipe loading.
+    uint32 professionId = CraftingOrdersDomain::PROF_NONE;
+    for (uint32 candidate : professions)
+    {
+        auto recipes = _trainerRecipes.find(candidate);
+        if (recipes != _trainerRecipes.end() && !recipes->second.empty())
+        {
+            professionId = candidate;
+            break;
+        }
+    }
+
+    // Some cores/data sets only expose the profession-learning spell on the
+    // creature template.  Its SKILL effect is an equally authoritative
+    // fallback when no recipe row is present on that trainer.
+    if (!professionId && creature->GetCreatureInfo()->trainer_spell)
+    {
+        if (SpellEntry const* spell = sSpellMgr.GetSpellEntry(creature->GetCreatureInfo()->trainer_spell))
+            for (uint32 i = 0; i < MAX_EFFECT_INDEX; ++i)
+                if (spell->Effect[i] == SPELL_EFFECT_SKILL &&
+                    CraftingOrdersDomain::IsSupportedProfession(uint32(spell->EffectMiscValue[i])))
+                {
+                    uint32 candidate = uint32(spell->EffectMiscValue[i]);
+                    auto recipes = _trainerRecipes.find(candidate);
+                    if (recipes != _trainerRecipes.end() && !recipes->second.empty())
+                    {
+                        professionId = candidate;
+                        break;
+                    }
+                }
+    }
+
+    if (!professionId)
+        return false;
+
+    binding.entry = creature->GetEntry();
+    binding.professionId = professionId;
+    binding.service = professionId == CraftingOrdersDomain::PROF_ENCHANTING
+        ? CraftingOrdersDomain::SERVICE_ENCHANT
+        : CraftingOrdersDomain::SERVICE_CRAFT;
+    binding.scriptName.clear();
+    binding.available = true;
+    return true;
+}
+
 RecipeData const* CraftingOrders::GetRecipeForSpell(uint32 spellId) const
 {
     auto it = _spellRecipeMap.find(spellId);
@@ -508,14 +593,19 @@ Item* CraftingOrders::FindOwnedItem(Player* player, uint32 bag, uint32 slot, uin
     return item;
 }
 
-bool CraftingOrders::OpenSession(Player* player, Creature* creature)
+bool CraftingOrders::OpenSession(Player* player, Creature* creature, uint32 serviceOverride)
 {
     if (!player || !creature || !Enabled())
         return false;
-    NpcBinding const* binding = GetNpcBinding(creature->GetEntry());
-    if (!binding)
+    NpcBinding binding;
+    if (!ResolveNpcBinding(creature, binding))
         return false;
-    if (binding->service == CraftingOrdersDomain::SERVICE_DISENCHANT && !sCraftingOrdersConfig.DisenchantEnabled())
+    uint32 service = serviceOverride ? serviceOverride : binding.service;
+    if (service == CraftingOrdersDomain::SERVICE_DISENCHANT && !sCraftingOrdersConfig.DisenchantEnabled())
+        return false;
+    if (service == CraftingOrdersDomain::SERVICE_DISENCHANT &&
+        binding.professionId == CraftingOrdersDomain::PROF_ENCHANTING &&
+        !sCraftingOrdersConfig.EnchantingDisenchantEnabled())
         return false;
 
     CraftingSession session;
@@ -526,8 +616,8 @@ bool CraftingOrders::OpenSession(Player* player, Creature* creature)
     session.x = player->GetPositionX();
     session.y = player->GetPositionY();
     session.z = player->GetPositionZ();
-    session.professionId = binding->professionId;
-    session.service = binding->service;
+    session.professionId = binding.professionId;
+    session.service = service;
     session.createdMs = GetNowMs();
     session.expiresMs = session.createdMs + CraftingOrdersDomain::SESSION_TTL_MS;
     _sessions[session.playerGuid] = session;

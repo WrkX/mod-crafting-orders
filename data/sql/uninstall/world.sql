@@ -1,7 +1,11 @@
--- Manual uninstall only. Do not place this file under data/sql/world/.
--- Preserve unlock/cooldown character tables unless an administrator
--- explicitly wants a full wipe.
-
-DELETE FROM `crafting_order_npc` WHERE `entry` BETWEEN 5110001 AND 5110024;
-DELETE FROM `creature_template` WHERE `entry` BETWEEN 5110001 AND 5110024
-  AND `script_name` IN ('crafting_order', 'crafting_order_enchant', 'crafting_order_disenchant');
+-- Manual rollback notes only. Do not place this file under data/sql/world/.
+--
+-- The module no longer owns creature templates, creature spawns, gossip rows,
+-- or script bindings on a new installation. Existing releases may have
+-- created entries 5110001-5110024 and rows in crafting_order_npc; preserve
+-- those rows during rollback so an upgrade cannot remove unrelated or still
+-- recoverable content. No destructive SQL is intentionally shipped here.
+--
+-- Disable CraftingOrders.Enable, then remove the client addon if desired.
+-- Leave crafting_order_npc and any legacy creature rows in place unless an
+-- administrator has separately audited and explicitly removed them.

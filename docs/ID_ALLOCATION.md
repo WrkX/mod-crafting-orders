@@ -1,17 +1,20 @@
 # ID Allocation
 
-Reserved numeric ranges for this module. Do not reuse them for unrelated content.
+No new numeric IDs are allocated for normal operation. Existing profession
+trainers are augmented in memory and their existing creature/template, gossip,
+and trainer rows are not rewritten.
 
-Startup collision detection refuses to overwrite an occupied creature template, gossip
-menu, or npc_text row that does not already belong to this module.
+The range below is retained as a legacy reservation for installations upgraded
+from the first release. Do not reuse those entries for unrelated content while
+they remain in a database.
 
 ## Creature templates
 
-Range: **5110001–5110024** (`mediumint` creature `entry`).
+Legacy range: **5110001–5110024** (`mediumint` creature `entry`).
 
-No automatic `creature` spawn rows are shipped. Administrators place these
-templates with `.npc add` or a local spawn SQL file kept outside
-`data/sql/world/`.
+New migrations do not create these templates or any `creature` spawn rows.
+Older installations may retain them; they are not removed during upgrade or
+rollback.
 
 | Entry | Faction | Service | `script_name` |
 |---:|---|---|---|
@@ -47,8 +50,9 @@ does not match the intended race.
 
 ## Gossip
 
-Gossip menus are built in script. Greeting text reuses stock npc_text **1**
-so the module does not insert `broadcast_text` / `npc_text` rows.
+Gossip menus are built in script and attached to eligible profession trainers at
+runtime. Greeting text reuses stock npc_text **1**, so the module does not
+insert `broadcast_text`, `npc_text`, gossip-menu, or gossip-option rows.
 
 ## Character tables
 
@@ -57,8 +61,10 @@ Module-owned character tables (not numeric IDs):
 - `crafting_order_recipes`
 - `crafting_order_cooldowns`
 
-## Administrators mapping existing NPCs
+## Legacy administrator mappings
 
-To attach the service to an existing creature, insert a
-`crafting_order_npc` row and set that template's `script_name` to the matching
-script above. Do not reuse entries 5110001–5110024 for unrelated NPCs.
+The `crafting_order_npc` table and the `script_name` values in the table above
+are compatibility data for older releases only. New installations must not add
+rows for ordinary profession trainers or change their `script_name`. If a
+legacy dedicated NPC is still used, preserve its existing binding and entry;
+the runtime trainer integration does not require it.

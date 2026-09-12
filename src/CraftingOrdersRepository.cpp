@@ -22,8 +22,11 @@ void CraftingOrders::LoadNpcBindings()
     _npcBindings.clear();
     if (!TableExists(WorldDatabase, "crafting_order_npc"))
     {
-        sLog.outError("[mod-crafting-orders] Table crafting_order_npc is missing; NPC bindings disabled.");
-        _disabledForData = true;
+        // Dedicated NPC bindings are legacy compatibility data. Runtime
+        // profession-trainer discovery does not depend on this table, so a
+        // fresh installation without the optional compatibility migration
+        // must still be able to serve existing trainers.
+        sLog.outString("[mod-crafting-orders] Optional table crafting_order_npc is missing; using runtime trainer discovery.");
         return;
     }
 
@@ -31,7 +34,7 @@ void CraftingOrders::LoadNpcBindings()
         "SELECT entry, professionId, service FROM crafting_order_npc"));
     if (!result)
     {
-        sLog.outError("[mod-crafting-orders] crafting_order_npc is empty; no NPCs will serve orders.");
+        sLog.outString("[mod-crafting-orders] No legacy crafting_order_npc bindings found; using runtime trainer discovery.");
         return;
     }
 

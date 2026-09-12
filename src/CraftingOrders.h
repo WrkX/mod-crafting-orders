@@ -82,6 +82,8 @@ public:
 
     void Load();
     bool Enabled() const { return _enabled; }
+    bool TrainerGossipEnabled() const { return _trainerGossipEnabled; }
+    bool EnchantingDisenchantEnabled() const { return _enchantingDisenchantEnabled; }
 
     CraftingOrdersDomain::FeeConfig const& Fees() const { return _fees; }
     bool EnforceCooldowns() const { return _enforceCooldowns; }
@@ -96,6 +98,8 @@ public:
 private:
     CraftingOrdersConfig() = default;
     bool _enabled = false;
+    bool _trainerGossipEnabled = true;
+    bool _enchantingDisenchantEnabled = true;
     bool _enforceCooldowns = true;
     bool _accountWideCooldowns = false;
     bool _disenchantEnabled = true;
@@ -118,6 +122,7 @@ public:
     bool Enabled() const;
 
     NpcBinding const* GetNpcBinding(uint32 creatureEntry) const;
+    bool ResolveNpcBinding(Creature const* creature, NpcBinding& binding) const;
     RecipeData const* GetRecipeForSpell(uint32 spellId) const;
     std::vector<RecipeData> GetAvailableRecipes(Player* player, uint32 professionId) const;
     uint32 CalculateGoldFee(RecipeData const& recipe) const;
@@ -129,7 +134,7 @@ public:
     RecipeData const* ResolveRecipeItem(ItemPrototype const* proto, uint32 professionId, uint32& taughtSpell) const;
     bool IsEnchantmentSpell(SpellEntry const* spellInfo, uint32* enchantId = nullptr, bool* permanent = nullptr) const;
 
-    bool OpenSession(Player* player, Creature* creature);
+    bool OpenSession(Player* player, Creature* creature, uint32 serviceOverride = 0);
     CraftingSession* GetSession(Player* player);
     bool ValidateSession(Player* player, uint32 expectedService, std::string& error);
     void CloseSession(uint32 playerGuid);
