@@ -28,6 +28,10 @@ int main()
     Expect(GetSkillTier(300) == TIER_ARTISAN, "tier artisan cap");
     Expect(GetSkillTier(301) == TIER_NONE, "tier above artisan rejected");
     Expect(GetSkillTier(0) == TIER_NONE, "tier zero rejected");
+    Expect(RecipeWithinSkillCap(150, 150), "trainer cap includes boundary recipe");
+    Expect(!RecipeWithinSkillCap(151, 150), "trainer cap rejects higher recipe");
+    Expect(!RecipeWithinSkillCap(0, 150), "trainer cap rejects invalid recipe rank");
+    Expect(!RecipeWithinSkillCap(1, 0), "zero trainer cap rejects recipes");
 
     uint32 out = 0;
     Expect(CheckedMulU32(20, 20, out) && out == 400, "mul ok");

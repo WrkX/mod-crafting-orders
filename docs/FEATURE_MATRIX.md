@@ -23,7 +23,7 @@ Reviewed revision: `81e1dc45e6750fd9ebe623a68a18486f47f76548`
 | Master / Grand Master tiers | Deferred | Not present on this client/core |
 | Glyph base prices | Deferred | Glyphs are a later-expansion item class |
 | `SkillLine.dbc` / `patch-I.MPQ` | Deferred | Must not overwrite Turtle client data |
-| Existing profession-trainer gossip | Adapted | Detected from trainer data at runtime; no DB binding or dedicated NPC required |
+| Existing profession-trainer gossip | Adapted | Detected from trainer data at runtime; crafting is capped at that trainer's profession rank; no DB binding or dedicated NPC required |
 | Automatic city/Outland/Northrend spawns | Deferred | No module creature spawns are created; eligible existing trainers are augmented |
 | WotLK addon (interface 30300) | Adapted | Rewritten for Vanilla/Turtle 1.12 |
 | Addon message protocol | Adapted | Versioned, session-bound, chunked, untrusted input |

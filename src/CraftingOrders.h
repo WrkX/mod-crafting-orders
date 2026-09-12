@@ -50,6 +50,7 @@ struct NpcBinding
     uint32 entry = 0;
     uint32 professionId = 0;
     uint32 service = CraftingOrdersDomain::SERVICE_NONE;
+    uint32 maxSkillRank = CraftingOrdersDomain::ARTISAN_SKILL_CAP;
     std::string scriptName;
     bool available = false;
 };
@@ -65,6 +66,7 @@ struct CraftingSession
     float z = 0.f;
     uint32 professionId = 0;
     uint32 service = CraftingOrdersDomain::SERVICE_NONE;
+    uint32 maxSkillRank = CraftingOrdersDomain::ARTISAN_SKILL_CAP;
     uint32 createdMs = 0;
     uint32 expiresMs = 0;
     uint32 lastRequestId = 0;
@@ -124,7 +126,8 @@ public:
     NpcBinding const* GetNpcBinding(uint32 creatureEntry) const;
     bool ResolveNpcBinding(Creature const* creature, NpcBinding& binding) const;
     RecipeData const* GetRecipeForSpell(uint32 spellId) const;
-    std::vector<RecipeData> GetAvailableRecipes(Player* player, uint32 professionId) const;
+    std::vector<RecipeData> GetAvailableRecipes(Player* player, uint32 professionId,
+        uint32 maxSkillRank = CraftingOrdersDomain::ARTISAN_SKILL_CAP) const;
     uint32 CalculateGoldFee(RecipeData const& recipe) const;
     bool ValidateMaterials(RecipeData const& recipe, Player* player, uint32 quantity, std::string& error) const;
     bool IsOnCooldown(Player* player, uint32 spellId) const;
@@ -143,7 +146,8 @@ public:
     bool HandleAddonPacket(WorldSession* session, WorldPacket const& packet);
     void SendAddon(Player* player, uint32 requestId, std::string const& opcode, std::string const& payload, uint32 page = 0, uint32 totalPages = 1);
 
-    std::vector<std::string> BuildRecipeRecords(Player* player, uint32 professionId, std::string const& filter, uint32 tier) const;
+    std::vector<std::string> BuildRecipeRecords(Player* player, uint32 professionId, std::string const& filter,
+        uint32 tier, uint32 maxSkillRank = CraftingOrdersDomain::ARTISAN_SKILL_CAP) const;
     std::vector<std::string> BuildDisenchantRecords(Player* player) const;
     std::vector<std::string> BuildHandInRecords(Player* player, uint32 professionId) const;
     std::string BuildRecipeDataMessage(Player* player, uint32 professionId, std::string const& filter, uint32 tier) const;

@@ -165,6 +165,11 @@ namespace CraftingOrdersDomain
         return TIER_ARTISAN;
     }
 
+    inline bool RecipeWithinSkillCap(uint32 reqSkillRank, uint32 maxSkillRank)
+    {
+        return reqSkillRank > 0 && maxSkillRank > 0 && reqSkillRank <= maxSkillRank;
+    }
+
     inline bool CheckedAddU32(uint32 a, uint32 b, uint32& out)
     {
         uint64 const sum = uint64(a) + uint64(b);

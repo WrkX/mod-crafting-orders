@@ -132,10 +132,11 @@ void CraftingOrders::SendAddon(Player* player, uint32 requestId, std::string con
     sendOne(opcode, payload, page, totalPages);
 }
 
-std::vector<std::string> CraftingOrders::BuildRecipeRecords(Player* player, uint32 professionId, std::string const& filter, uint32 tier) const
+std::vector<std::string> CraftingOrders::BuildRecipeRecords(Player* player, uint32 professionId,
+    std::string const& filter, uint32 tier, uint32 maxSkillRank) const
 {
     std::vector<std::string> records;
-    std::vector<RecipeData> recipes = GetAvailableRecipes(player, professionId);
+    std::vector<RecipeData> recipes = GetAvailableRecipes(player, professionId, maxSkillRank);
     std::string lowerFilter = CraftingOrdersDomain::ToLowerCopy(filter);
     bool makeableOnly = lowerFilter == "makeable";
 
@@ -378,7 +379,8 @@ bool CraftingOrders::HandleAddonPacket(WorldSession* session, WorldPacket const&
             CraftingOrdersDomain::ParseU32(req.fields[1], tier);
         if (req.fields.size() >= 3)
             CraftingOrdersDomain::ParseU32(req.fields[2], page);
-        finishList("RECIPES", BuildRecipeRecords(player, craftSession->professionId, filter, tier), page);
+        finishList("RECIPES", BuildRecipeRecords(player, craftSession->professionId, filter, tier,
+            craftSession->maxSkillRank), page);
         return false;
     }
 
@@ -469,7 +471,9 @@ bool CraftingOrders::HandleAddonPacket(WorldSession* session, WorldPacket const&
             finish("ENCHANT_RESULT", "FAIL\tEnchant not found");
             return false;
         }
-        if (!PlayerCanUseRecipe(player, *recipe))
+        if (recipe->professionId != craftSession->professionId ||
+            !CraftingOrdersDomain::RecipeWithinSkillCap(recipe->reqSkillRank, craftSession->maxSkillRank) ||
+            !PlayerCanUseRecipe(player, *recipe))
         {
             finish("ENCHANT_RESULT", "FAIL\tEnchant not found");
             return false;

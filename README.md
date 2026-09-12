@@ -3,7 +3,9 @@
 Turtle/Vanilla crafting orders for this Tortoise fork. The module augments
 existing profession trainers at runtime, so players can hand a trainer
 materials and a gold fee; the server crafts, enchants, or disenchants without
-the player knowing the recipe.
+the player knowing the recipe. Each trainer is limited to its own profession
+rank: for example, a trainer capped at 150 only fulfills orders for recipes
+requiring 150 skill or less.
 
 Ported from [WoWGreymane/mod-crafting-Orders](https://github.com/WoWGreymane/mod-crafting-Orders)
 revision `81e1dc45e6750fd9ebe623a68a18486f47f76548`. See
@@ -19,6 +21,11 @@ MPQ files.
 - Turtle Jewelcrafting (skill 755, skill cap 300)
 - Disenchanting
 - Recipe and formula hand-ins
+
+Crafting and enchanting orders are capped by the trainer's highest profession
+rank (75, 150, 225, or 300). Unlocked recipe/formula hand-ins remain available
+account-wide, but a higher-rank recipe must be ordered from a trainer capable
+of that rank.
 
 Inscription, milling, and prospecting are deferred.
 
