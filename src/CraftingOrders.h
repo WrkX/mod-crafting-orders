@@ -15,7 +15,7 @@ class Item;
 class Creature;
 class WorldSession;
 class WorldPacket;
-struct SpellEntry;
+class SpellEntry;
 struct ItemPrototype;
 
 struct CraftMaterial
