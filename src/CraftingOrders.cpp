@@ -10,6 +10,7 @@
 #include "Mail.h"
 #include "Map.h"
 #include "Object.h"
+#include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "SharedDefines.h"
@@ -244,8 +245,16 @@ void CraftingOrders::Update(uint32 diff)
 
     for (auto it = _sessions.begin(); it != _sessions.end();)
     {
-        if (DeadlineReached(_elapsedMs, it->second.expiresMs))
+        CraftingSession const& session = it->second;
+        Player* player = ObjectAccessor::FindPlayer(ObjectGuid(HIGHGUID_PLAYER, session.playerGuid));
+        if (DeadlineReached(_elapsedMs, session.expiresMs))
             it = _sessions.erase(it);
+        else if (!player || !ResolveSessionCreature(player, session))
+        {
+            if (player)
+                SendAddon(player, 0, "CLOSE_UI", "");
+            it = _sessions.erase(it);
+        }
         else
             ++it;
     }
