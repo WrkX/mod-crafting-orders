@@ -15,7 +15,7 @@ class Item;
 class Creature;
 class WorldSession;
 class WorldPacket;
-struct SpellEntry;
+class SpellEntry;
 struct ItemPrototype;
 
 struct CraftMaterial
@@ -50,6 +50,7 @@ struct NpcBinding
     uint32 entry = 0;
     uint32 professionId = 0;
     uint32 service = CraftingOrdersDomain::SERVICE_NONE;
+    uint32 maxSkillRank = CraftingOrdersDomain::ARTISAN_SKILL_CAP;
     std::string scriptName;
     bool available = false;
 };
@@ -65,6 +66,7 @@ struct CraftingSession
     float z = 0.f;
     uint32 professionId = 0;
     uint32 service = CraftingOrdersDomain::SERVICE_NONE;
+    uint32 maxSkillRank = CraftingOrdersDomain::ARTISAN_SKILL_CAP;
     uint32 createdMs = 0;
     uint32 expiresMs = 0;
     uint32 lastRequestId = 0;
@@ -82,6 +84,8 @@ public:
 
     void Load();
     bool Enabled() const { return _enabled; }
+    bool TrainerGossipEnabled() const { return _trainerGossipEnabled; }
+    bool EnchantingDisenchantEnabled() const { return _enchantingDisenchantEnabled; }
 
     CraftingOrdersDomain::FeeConfig const& Fees() const { return _fees; }
     bool EnforceCooldowns() const { return _enforceCooldowns; }
@@ -96,6 +100,8 @@ public:
 private:
     CraftingOrdersConfig() = default;
     bool _enabled = false;
+    bool _trainerGossipEnabled = true;
+    bool _enchantingDisenchantEnabled = true;
     bool _enforceCooldowns = true;
     bool _accountWideCooldowns = false;
     bool _disenchantEnabled = true;
@@ -118,18 +124,21 @@ public:
     bool Enabled() const;
 
     NpcBinding const* GetNpcBinding(uint32 creatureEntry) const;
+    bool ResolveNpcBinding(Creature const* creature, NpcBinding& binding) const;
     RecipeData const* GetRecipeForSpell(uint32 spellId) const;
-    std::vector<RecipeData> GetAvailableRecipes(Player* player, uint32 professionId) const;
+    std::vector<RecipeData> GetAvailableRecipes(Player* player, uint32 professionId,
+        uint32 maxSkillRank = CraftingOrdersDomain::ARTISAN_SKILL_CAP) const;
     uint32 CalculateGoldFee(RecipeData const& recipe) const;
     bool ValidateMaterials(RecipeData const& recipe, Player* player, uint32 quantity, std::string& error) const;
     bool IsOnCooldown(Player* player, uint32 spellId) const;
     void SetCooldown(Player* player, uint32 spellId, uint32 cooldownSecs);
     bool HasPlayerRecipe(Player* player, uint32 professionId, uint32 spellId) const;
     bool AddPlayerRecipe(Player* player, uint32 professionId, uint32 spellId);
+    bool HandInRecipe(Player* player, uint32 itemGuidLow, std::string& result);
     RecipeData const* ResolveRecipeItem(ItemPrototype const* proto, uint32 professionId, uint32& taughtSpell) const;
     bool IsEnchantmentSpell(SpellEntry const* spellInfo, uint32* enchantId = nullptr, bool* permanent = nullptr) const;
 
-    bool OpenSession(Player* player, Creature* creature);
+    bool OpenSession(Player* player, Creature* creature, uint32 serviceOverride = 0);
     CraftingSession* GetSession(Player* player);
     bool ValidateSession(Player* player, uint32 expectedService, std::string& error);
     void CloseSession(uint32 playerGuid);
@@ -138,7 +147,8 @@ public:
     bool HandleAddonPacket(WorldSession* session, WorldPacket const& packet);
     void SendAddon(Player* player, uint32 requestId, std::string const& opcode, std::string const& payload, uint32 page = 0, uint32 totalPages = 1);
 
-    std::vector<std::string> BuildRecipeRecords(Player* player, uint32 professionId, std::string const& filter, uint32 tier) const;
+    std::vector<std::string> BuildRecipeRecords(Player* player, uint32 professionId, std::string const& filter,
+        uint32 tier, uint32 maxSkillRank = CraftingOrdersDomain::ARTISAN_SKILL_CAP) const;
     std::vector<std::string> BuildDisenchantRecords(Player* player) const;
     std::vector<std::string> BuildHandInRecords(Player* player, uint32 professionId) const;
     std::string BuildRecipeDataMessage(Player* player, uint32 professionId, std::string const& filter, uint32 tier) const;

@@ -1,113 +1,991 @@
-<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
-  <Script file="CraftingOrders.lua"/>
-
-  <Frame name="CraftingOrdersFrame" parent="UIParent" hidden="true" movable="true" enableMouse="true" toplevel="true">
-    <Size>
-      <AbsDimension x="520" y="420"/>
-    </Size>
-    <Anchors>
-      <Anchor point="CENTER"/>
-    </Anchors>
-    <Backdrop bgFile="Interface\DialogFrame\UI-DialogBox-Background" edgeFile="Interface\DialogFrame\UI-DialogBox-Border" tile="true">
-      <BackgroundInsets>
-        <AbsInset left="11" right="12" top="12" bottom="11"/>
-      </BackgroundInsets>
-      <TileSize>
-        <AbsValue val="32"/>
-      </TileSize>
-      <EdgeSize>
-        <AbsValue val="32"/>
-      </EdgeSize>
-    </Backdrop>
-    <Scripts>
-      <OnLoad>
-        this:RegisterEvent("CHAT_MSG_ADDON");
-        this:RegisterEvent("PLAYER_LOGOUT");
-        CraftingOrders_OnLoad();
-      </OnLoad>
-      <OnEvent>
-        CraftingOrders_OnEvent();
-      </OnEvent>
-      <OnMouseDown>
-        this:StartMoving();
-      </OnMouseDown>
-      <OnMouseUp>
-        this:StopMovingOrSizing();
-      </OnMouseUp>
-      <OnHide>
-        CraftingOrders_OnHide();
-      </OnHide>
-    </Scripts>
-    <Frames>
-      <Button name="$parentClose" inherits="UIPanelCloseButton">
-        <Anchors>
-          <Anchor point="TOPRIGHT">
-            <Offset>
-              <AbsDimension x="-5" y="-5"/>
-            </Offset>
-          </Anchor>
-        </Anchors>
-      </Button>
-      <Button name="$parentCraft">
-        <Size>
-          <AbsDimension x="120" y="24"/>
-        </Size>
-        <Anchors>
-          <Anchor point="BOTTOMRIGHT">
-            <Offset>
-              <AbsDimension x="-20" y="20"/>
-            </Offset>
-          </Anchor>
-        </Anchors>
-        <Scripts>
-          <OnClick>
-            CraftingOrders_Craft();
-          </OnClick>
-        </Scripts>
-        <NormalTexture file="Interface\Buttons\UI-Panel-Button-Up"/>
-        <PushedTexture file="Interface\Buttons\UI-Panel-Button-Down"/>
-        <HighlightTexture file="Interface\Buttons\UI-Panel-Button-Highlight" alphaMode="ADD"/>
-        <ButtonText>
-          <FontString inherits="GameFontNormal" text="Create"/>
-        </ButtonText>
-      </Button>
-    </Frames>
-    <Layers>
-      <Layer level="ARTWORK">
-        <FontString name="$parentTitle" inherits="GameFontNormalLarge" text="Crafting Orders">
-          <Anchors>
-            <Anchor point="TOP">
-              <Offset>
-                <AbsDimension x="0" y="-18"/>
-              </Offset>
-            </Anchor>
-          </Anchors>
-        </FontString>
-        <FontString name="$parentStatus" inherits="GameFontHighlightSmall" justifyH="LEFT">
-          <Size>
-            <AbsDimension x="470" y="16"/>
-          </Size>
-          <Anchors>
-            <Anchor point="BOTTOMLEFT">
-              <Offset>
-                <AbsDimension x="22" y="48"/>
-              </Offset>
-            </Anchor>
-          </Anchors>
-        </FontString>
-        <FontString name="$parentDetail" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP">
-          <Size>
-            <AbsDimension x="230" y="260"/>
-          </Size>
-          <Anchors>
-            <Anchor point="TOPRIGHT">
-              <Offset>
-                <AbsDimension x="-24" y="-50"/>
-              </Offset>
-            </Anchor>
-          </Anchors>
-        </FontString>
-      </Layer>
-    </Layers>
-  </Frame>
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/
+..\..\FrameXML\UI.xsd">
+	<Script file="CraftingOrders.lua"/>
+	<Button name="CraftingOrderSkillButtonTemplate" inherits="ClassTrainerSkillButtonTemplate" hidden="false" virtual="true">
+		<Layers>
+			<Layer level="OVERLAY">
+				<FontString name="$parentCount" inherits="GameFontNormal">
+					<Size x="0" y="13"/>
+					<Anchors>
+						<Anchor point="LEFT">
+							<Offset x="0" y="0"/>
+						</Anchor>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Scripts>
+			<OnClick>
+				if ( IsModifiedClick and IsModifiedClick() ) then
+					local rec = CraftingOrder_GetRecipeByFilteredIndex(this:GetID());
+					if rec then
+						if HandleModifiedItemClick then
+							HandleModifiedItemClick("item:"..rec.itemId..":0:0:0:0:0:0:0");
+						end
+					end
+				else
+					CraftingOrderSkillButton_OnClick(this, arg1);
+				end
+			</OnClick>
+			<OnLoad>
+					_G[this:GetName().."Count"]:SetPoint("LEFT", this:GetName().."Text", "RIGHT", 2, 0);
+			</OnLoad>
+			<OnEnter>
+					_G[this:GetName().."Count"]:SetTextColor(HIGHLIGHT_FONT_COLOR.r, HIGHLIGHT_FONT_COLOR.g, HIGHLIGHT_FONT_COLOR.b);
+			</OnEnter>
+			<OnLeave>
+					if ( not this.isHighlighted ) then
+						_G[this:GetName().."Count"]:SetTextColor(this.r, this.g, this.b);
+				end
+			</OnLeave>
+		</Scripts>
+	</Button>
+	<Button name="CraftingOrderItemTemplate" inherits="QuestItemTemplate" virtual="true">
+		<Layers>
+			<Layer level="OVERLAY">
+				<FontString name="$parentName" inherits="GameFontNormalSmall" justifyH="LEFT">
+					<Size>
+						<AbsDimension x="0" y="0"/>
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parent" relativePoint="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="4" y="0"/>
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentCount" inherits="GameFontHighlightSmall" justifyH="RIGHT">
+					<Size>
+						<AbsDimension x="0" y="0"/>
+					</Size>
+					<Anchors>
+						<Anchor point="TOPRIGHT" relativeTo="$parent" relativePoint="BOTTOMRIGHT">
+							<Offset>
+								<AbsDimension x="0" y="2"/>
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Scripts>
+			<OnEnter>
+				if this.itemLink then
+					GameTooltip:SetOwner(this, "ANCHOR_TOPLEFT");
+					GameTooltip:SetHyperlink(this.itemLink);
+					CursorUpdate(this);
+				end
+			</OnEnter>
+			<OnLeave>
+				GameTooltip:Hide();
+				ResetCursor();
+			</OnLeave>
+			<OnUpdate>
+					CursorOnUpdate(this, arg1);
+			</OnUpdate>
+			<OnClick>
+				if this.itemLink then
+						if HandleModifiedItemClick then
+							HandleModifiedItemClick(this.itemLink);
+						end
+				end
+			</OnClick>
+		</Scripts>
+	</Button>
+	<Frame name="CraftingOrderFrame" toplevel="true" movable="true" parent="UIParent" enableMouse="true" hidden="true">
+		<Size>
+			<AbsDimension x="384" y="512"/>
+		</Size>
+		<Anchors>
+			<Anchor point="TOPLEFT">
+				<Offset>
+					<AbsDimension x="0" y="-104"/>
+				</Offset>
+			</Anchor>
+		</Anchors>
+		<HitRectInsets>
+			<AbsInset left="0" right="34" top="0" bottom="75"/>
+		</HitRectInsets>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture name="CraftingOrderFramePortrait">
+				  <Size>
+					<AbsDimension x="60" y="60"/>
+				  </Size>
+				  <Anchors>
+					<Anchor point="TOPLEFT">
+					  <Offset>
+						<AbsDimension x="7" y="-6"/>
+					  </Offset>
+					</Anchor>
+				  </Anchors>
+				</Texture>
+				<FontString name="$parentDummyString" inherits="GameFontNormal" hidden="true">
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset x="0" y="0"/>
+						</Anchor>
+					</Anchors>
+					<Size x="0" y="0"/>
+				</FontString>
+			  </Layer>
+			<Layer level="BORDER">
+				<Texture file="Interface\ClassTrainerFrame\UI-ClassTrainer-TopLeft">
+					<Size>
+						<AbsDimension x="256" y="256"/>
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT"/>
+					</Anchors>
+				</Texture>
+				<Texture file="Interface\ClassTrainerFrame\UI-ClassTrainer-TopRight">
+					<Size>
+						<AbsDimension x="128" y="256"/>
+					</Size>
+					<Anchors>
+						<Anchor point="TOPRIGHT"/>
+					</Anchors>
+				</Texture>
+				<Texture name="CraftingOrderFrameBottomLeftTexture" file="Interface\TradeSkillFrame\UI-TradeSkill-BotLeft">
+					<Size>
+						<AbsDimension x="256" y="256"/>
+					</Size>
+					<Anchors>
+						<Anchor point="BOTTOMLEFT"/>
+					</Anchors>
+				</Texture>
+				<Texture name="CraftingOrderFrameBottomRightTexture" file="Interface\ClassTrainerFrame\UI-ClassTrainer-BotRight">
+					<Size>
+						<AbsDimension x="128" y="256"/>
+					</Size>
+					<Anchors>
+						<Anchor point="BOTTOMRIGHT"/>
+					</Anchors>
+				</Texture>
+				<FontString name="CraftingOrderFrameTitleText" inherits="GameFontNormal" text="Crafting Orders">
+					<Anchors>
+						<Anchor point="TOP" relativeTo="CraftingOrderFrame" relativePoint="TOP">
+							<Offset>
+								<AbsDimension x="0" y="-17"/>
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+			</Layer>
+			<Layer level="ARTWORK">
+				<Texture name="CraftingOrderHorizontalBarLeft" file="Interface\ClassTrainerFrame\UI-ClassTrainer-HorizontalBar">
+					<Size>
+						<AbsDimension x="256" y="16"/>
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset>
+								<AbsDimension x="15" y="-242"/>
+							</Offset>
+						</Anchor>
+					</Anchors>
+					<TexCoords left="0" right="1.0" top="0" bottom="0.25"/>
+				</Texture>
+				<Texture file="Interface\ClassTrainerFrame\UI-ClassTrainer-HorizontalBar">
+					<Size>
+						<AbsDimension x="75" y="16"/>
+					</Size>
+					<Anchors>
+						<Anchor point="LEFT" relativeTo="CraftingOrderHorizontalBarLeft" relativePoint="RIGHT">
+							<Offset>
+								<AbsDimension x="0" y="0"/>
+							</Offset>
+						</Anchor>
+					</Anchors>
+					<TexCoords left="0" right="0.29296875" top="0.25" bottom="0.5"/>
+				</Texture>
+			</Layer>
+		</Layers>
+		<Frames>
+			<CheckButton name="CraftingOrderFrameAvailableFilterCheckButton" inherits="UICheckButtonTemplate">
+				<Size>
+					<AbsDimension x="24" y="24"/>
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset>
+							<AbsDimension x="70" y="-46"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnLoad>
+						CraftingOrderFrameAvailableFilterCheckButtonText:SetText("Have materials");
+					</OnLoad>
+					<OnClick>
+						CraftingOrderOnlyShowMakeable(this:GetChecked());
+					</OnClick>
+					<OnEnter>
+						GameTooltip:SetOwner(this, "ANCHOR_LEFT");
+						GameTooltip:SetText(CRAFT_IS_MAKEABLE_TOOLTIP or "Show only recipes for which you have materials.", nil, nil, nil, nil, 1);
+					</OnEnter>
+					<OnLeave function="GameTooltip_Hide"/>
+				</Scripts>
+				<HitRectInsets>
+					<AbsInset left="0" right="-75" top="0" bottom="0"/>
+				</HitRectInsets>
+			</CheckButton>
+			<StatusBar name="CraftingOrderRankFrame" drawLayer="BACKGROUND" minValue="0" maxValue="1" defaultValue="0" enableMouse="false">
+				<Size>
+					<AbsDimension x="265" y="14"/>
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset>
+							<AbsDimension x="75" y="-36"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Layers>
+					<Layer level="ARTWORK">
+						<FontString name="$parentSkillRank" inherits="GameFontHighlightSmall" justifyH="CENTER">
+							<Size>
+								<AbsDimension x="0" y="9"/>
+							</Size>
+							<Anchors>
+								<Anchor point="TOP" relativeTo="CraftingOrderFrameTitleText">
+									<Offset>
+										<AbsDimension x="0" y="-20"/>
+									</Offset>
+								</Anchor>
+							</Anchors>
+						</FontString>
+						<Texture name="$parentBorder" file="Interface\PaperDollInfoFrame\UI-Character-Skills-BarBorder">
+							<Size>
+								<AbsDimension x="274" y="27"/>
+							</Size>
+							<Anchors>
+								<Anchor point="LEFT">
+									<Offset>
+										<AbsDimension x="-5" y="0"/>
+									</Offset>
+								</Anchor>
+							</Anchors>
+						</Texture>
+					</Layer>
+					<Layer level="BACKGROUND">
+						<Texture name="$parentBackground">
+							<Color r="1.0" g="1.0" b="1.0" a="0.2"/>
+						</Texture>
+					</Layer>
+				</Layers>
+				<BarTexture name="$parentBar" file="Interface\PaperDollInfoFrame\UI-Character-Skills-Bar" />
+				<BarColor r="0.25" g="0.25" b="0.75" />
+			</StatusBar>
+			<EditBox name="$parentEditBox" autoFocus="false">
+				<Size>
+					<AbsDimension x="128" y="20"/>
+				</Size>
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="CraftingOrderRankFrame" relativePoint="BOTTOMRIGHT">
+						<Offset x="2" y="2"/>
+					</Anchor>
+				</Anchors>
+				<Layers>
+					<Layer level="BACKGROUND">
+						<Texture name="$parentLeft" file="Interface\Common\Common-Input-Border">
+							<Size>
+								<AbsDimension x="8" y="20"/>
+							</Size>
+							<Anchors>
+								<Anchor point="TOPLEFT">
+									<Offset x="-5" y="0"/>
+								</Anchor>
+							</Anchors>
+							<TexCoords left="0" right="0.0625" top="0" bottom="0.625"/>
+						</Texture>
+						<Texture name="$parentRight" file="Interface\Common\Common-Input-Border">
+							<Size>
+								<AbsDimension x="8" y="20"/>
+							</Size>
+							<Anchors>
+								<Anchor point="RIGHT">
+									<Offset x="0" y="0"/>
+								</Anchor>
+							</Anchors>
+							<TexCoords left="0.9375" right="1.0" top="0" bottom="0.625"/>
+						</Texture>
+						<Texture name="$parentMiddle" file="Interface\Common\Common-Input-Border">
+							<Size>
+								<AbsDimension x="0" y="20"/>
+							</Size>
+							<Anchors>
+								<Anchor point="LEFT" relativeTo="$parentLeft" relativePoint="RIGHT"/>
+								<Anchor point="RIGHT" relativeTo="$parentRight" relativePoint="LEFT"/>
+							</Anchors>
+							<TexCoords left="0.0625" right="0.9375" top="0" bottom="0.625"/>
+						</Texture>
+					</Layer>
+				</Layers>
+				<Scripts>
+					<OnShow>
+						this:SetText(SEARCH);
+					</OnShow>
+					<OnEnterPressed function="EditBox_ClearFocus"/>
+					<OnEscapePressed>
+						CraftingOrderFrame_Hide();
+					</OnEscapePressed>
+					<OnTextChanged>
+						CraftingOrderFilter_OnTextChanged(this);
+					</OnTextChanged>
+					<OnEditFocusLost>
+						this:HighlightText(0, 0);
+						if ( this:GetText() == "" ) then
+							this:SetText(SEARCH);
+						end
+					</OnEditFocusLost>
+					<OnEditFocusGained>
+						this:HighlightText();
+						if ( this:GetText() == SEARCH ) then
+							this:SetText("");
+						end
+					</OnEditFocusGained>
+				</Scripts>
+				<FontString inherits="GameFontNormalSmall"/>
+			</EditBox>
+			<Frame name="CraftingOrderExpandButtonFrame">
+				<Size>
+					<AbsDimension x="54" y="32"/>
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset>
+							<AbsDimension x="0" y="-66"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Layers>
+					<Layer level="BACKGROUND">
+						<Texture name="CraftingOrderExpandTabLeft" file="Interface\ClassTrainerFrame\UI-ClassTrainer-ExpandTab-Left" hidden="true">
+							<Size>
+								<AbsDimension x="8" y="32"/>
+							</Size>
+							<Anchors>
+								<Anchor point="TOPLEFT"/>
+							</Anchors>
+						</Texture>
+						<Texture name="CraftingOrderExpandTabMiddle" file="Interface\QuestFrame\UI-QuestLogSortTab-Middle" hidden="true">
+							<Size>
+								<AbsDimension x="38" y="32"/>
+							</Size>
+							<Anchors>
+								<Anchor point="LEFT" relativeTo="CraftingOrderExpandTabLeft" relativePoint="RIGHT">
+									<Offset>
+										<AbsDimension x="0" y="6"/>
+									</Offset>
+								</Anchor>
+							</Anchors>
+						</Texture>
+						<Texture name="CraftingOrderExpandTabRight" file="Interface\QuestFrame\UI-QuestLogSortTab-Right" hidden="true">
+							<Size>
+								<AbsDimension x="8" y="32"/>
+							</Size>
+							<Anchors>
+								<Anchor point="LEFT" relativeTo="CraftingOrderExpandTabMiddle" relativePoint="RIGHT"/>
+							</Anchors>
+						</Texture>
+					</Layer>
+				</Layers>
+				<Frames>
+					<Button name="CraftingOrderCollapseAllButton" hidden="false" inherits="ClassTrainerSkillButtonTemplate">
+						<Size>
+							<AbsDimension x="40" y="22"/>
+						</Size>
+						<Anchors>
+							<Anchor point="LEFT" relativeTo="CraftingOrderExpandTabLeft" relativePoint="RIGHT">
+								<Offset>
+									<AbsDimension x="8" y="3"/>
+								</Offset>
+							</Anchor>
+						</Anchors>
+						<Scripts>
+							<OnLoad>
+							_G[this:GetName()]:SetText(ALL);
+							</OnLoad>
+							<OnClick>
+								CraftingOrderCollapseAllButton_OnClick();
+							</OnClick>
+						</Scripts>
+					</Button>
+				</Frames>
+			</Frame>
+			<Frame name="CraftingOrderCategoryDropDown" inherits="UIDropDownMenuTemplate" id="2">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="CraftingOrderFrame" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="190" y="-66"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnLoad>
+						CraftingOrderCategoryDropDown_OnLoad();
+					</OnLoad>
+					<OnShow>
+						CraftingOrderCategoryDropDown_OnShow();
+					</OnShow>
+				</Scripts>
+			</Frame>
+			<Frame name="CraftingOrderSubClassDropDown" inherits="UIDropDownMenuTemplate" id="1">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="CraftingOrderFrame" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="60" y="-66"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnLoad>
+						CraftingOrderSubClassDropDown_OnLoad();
+					</OnLoad>
+					<OnShow>
+						CraftingOrderSubClassDropDown_OnShow();
+					</OnShow>
+				</Scripts>
+			</Frame>
+			<Frame name="CraftingOrderHighlightFrame" hidden="true">
+				<Size>
+					<AbsDimension x="293" y="16"/>
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT"/>
+				</Anchors>
+				<Layers>
+					<Layer level="ARTWORK">
+						<Texture name="CraftingOrderHighlight" file="Interface\Buttons\UI-Listbox-Highlight2"/>
+					</Layer>
+				</Layers>
+			</Frame>
+			<Button name="CraftingOrderSkill1" inherits="CraftingOrderSkillButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="CraftingOrderFrame">
+						<Offset>
+							<AbsDimension x="22" y="-94"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="CraftingOrderSkill2" inherits="CraftingOrderSkillButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="CraftingOrderSkill1" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="0" y="0"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="CraftingOrderSkill3" inherits="CraftingOrderSkillButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="CraftingOrderSkill2" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="0" y="0"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="CraftingOrderSkill4" inherits="CraftingOrderSkillButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="CraftingOrderSkill3" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="0" y="0"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="CraftingOrderSkill5" inherits="CraftingOrderSkillButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="CraftingOrderSkill4" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="0" y="0"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="CraftingOrderSkill6" inherits="CraftingOrderSkillButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="CraftingOrderSkill5" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="0" y="0"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="CraftingOrderSkill7" inherits="CraftingOrderSkillButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="CraftingOrderSkill6" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="0" y="0"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="CraftingOrderSkill8" inherits="CraftingOrderSkillButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="CraftingOrderSkill7" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="0" y="0"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="CraftingOrderSkill9" inherits="CraftingOrderSkillButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="CraftingOrderSkill8" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="0" y="0"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<ScrollFrame name="CraftingOrderListScrollFrame" inherits="ClassTrainerListScrollFrameTemplate">
+				<Size>
+					<AbsDimension x="296" y="152"/>
+				</Size>
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="CraftingOrderFrame" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="-67" y="-94"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnVerticalScroll>
+						FauxScrollFrame_OnVerticalScroll(TRADE_SKILL_HEIGHT, CraftingOrderFrame_Update);
+					</OnVerticalScroll>
+				</Scripts>
+			</ScrollFrame>
+			<ScrollFrame name="CraftingOrderDetailScrollFrame" inherits="ClassTrainerDetailScrollFrameTemplate">
+				<Size>
+					<AbsDimension x="297" y="152"/>
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset>
+							<AbsDimension x="20" y="-258"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<ScrollChild>
+					<Frame name="CraftingOrderDetailScrollChildFrame">
+						<Size>
+							<AbsDimension x="297" y="185"/>
+						</Size>
+						<Layers>
+							<Layer level="BACKGROUND">
+								<FontString name="CraftingOrderSkillName" inherits="GameFontNormal" text="Skill Name" justifyH="LEFT">
+									<Size>
+										<AbsDimension x="244" y="0"/>
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT">
+											<Offset>
+												<AbsDimension x="50" y="-5"/>
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="CraftingOrderRequirementLabel" inherits="GameFontHighlightSmall" text="Fee:">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="CraftingOrderSkillName" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="0"/>
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="CraftingOrderRequirementText" inherits="GameFontHighlightSmall" justifyV="TOP" justifyH="LEFT">
+									<Size>
+										<AbsDimension x="180" y="0"/>
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="CraftingOrderRequirementLabel" relativePoint="TOPRIGHT" >
+											<Offset>
+												<AbsDimension x="4" y="0"/>
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="CraftingOrderSkillCooldown" inherits="GameFontRedSmall">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="CraftingOrderRequirementLabel" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="0"/>
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<Texture name="CraftingOrderDetailHeaderLeft" file="Interface\ClassTrainerFrame\UI-ClassTrainer-DetailHeaderLeft">
+									<Size>
+										<AbsDimension x="256" y="64"/>
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT">
+											<Offset>
+												<AbsDimension x="0" y="3"/>
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</Texture>
+								<Texture file="Interface\ClassTrainerFrame\UI-ClassTrainer-DetailHeaderRight">
+									<Size>
+										<AbsDimension x="64" y="64"/>
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="CraftingOrderDetailHeaderLeft" relativePoint="TOPRIGHT">
+											<Offset>
+												<AbsDimension x="0" y="0"/>
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</Texture>
+								<FontString name="CraftingOrderDescription" inherits="GameFontHighlightSmall" justifyH="LEFT">
+									<Size>
+										<AbsDimension x="290" y="0"/>
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT">
+											<Offset>
+												<AbsDimension x="5" y="-50"/>
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="CraftingOrderReagentLabel" inherits="GameFontNormalSmall" text="SPELL_REAGENTS">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="CraftingOrderDescription" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-10"/>
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="CraftingOrderGoldCost" inherits="GameFontNormal" justifyH="LEFT" hidden="true">
+									<Size>
+										<AbsDimension x="290" y="0"/>
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="CraftingOrderReagentLabel" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-25"/>
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+							</Layer>
+						</Layers>
+						<Frames>
+							<Button name="CraftingOrderSkillIcon">
+								<Size>
+									<AbsDimension x="37" y="37"/>
+								</Size>
+								<Anchors>
+									<Anchor point="TOPLEFT">
+										<Offset>
+											<AbsDimension x="8" y="-3"/>
+										</Offset>
+									</Anchor>
+								</Anchors>
+								<Layers>
+									<Layer level="ARTWORK">
+										<FontString name="CraftingOrderSkillIconCount" inherits="NumberFontNormal" justifyH="RIGHT" hidden="false">
+											<Anchors>
+												<Anchor point="BOTTOMRIGHT">
+													<Offset>
+														<AbsDimension x="-5" y="2"/>
+													</Offset>
+												</Anchor>
+											</Anchors>
+										</FontString>
+									</Layer>
+								</Layers>
+								<Scripts>
+									<OnLoad>
+										this.hasItem = 1;
+									</OnLoad>
+									<OnClick>
+										local rec = CraftingOrder_GetRecipeByFilteredIndex(State.selectedRecipeIndex);
+										if rec then
+											if HandleModifiedItemClick then
+												HandleModifiedItemClick("item:"..rec.itemId..":0:0:0:0:0:0:0");
+											end
+										end
+									</OnClick>
+									<OnEnter function="CraftingOrderItem_OnEnter"/>
+									<OnLeave>
+										GameTooltip:Hide();
+										ResetCursor();
+									</OnLeave>
+									<OnUpdate>
+										if ( GameTooltip:IsOwned(this) ) then
+											CraftingOrderItem_OnEnter(this);
+										end
+										CursorOnUpdate(this);
+									</OnUpdate>
+								</Scripts>
+							</Button>
+							<Button name="CraftingOrderReagent1" inherits="CraftingOrderItemTemplate" id="1">
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeTo="CraftingOrderReagentLabel" relativePoint="BOTTOMLEFT">
+										<Offset>
+											<AbsDimension x="-2" y="-3"/>
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+							<Button name="CraftingOrderReagent2" inherits="CraftingOrderItemTemplate" id="2">
+								<Anchors>
+									<Anchor point="LEFT" relativeTo="CraftingOrderReagent1" relativePoint="RIGHT">
+										<Offset>
+											<AbsDimension x="0" y="0"/>
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+							<Button name="CraftingOrderReagent3" inherits="CraftingOrderItemTemplate" id="3">
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeTo="CraftingOrderReagent1" relativePoint="BOTTOMLEFT">
+										<Offset>
+											<AbsDimension x="0" y="-2"/>
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+							<Button name="CraftingOrderReagent4" inherits="CraftingOrderItemTemplate" id="4">
+								<Anchors>
+									<Anchor point="LEFT" relativeTo="CraftingOrderReagent3" relativePoint="RIGHT">
+										<Offset>
+											<AbsDimension x="0" y="0"/>
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+							<Button name="CraftingOrderReagent5" inherits="CraftingOrderItemTemplate" id="5">
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeTo="CraftingOrderReagent3" relativePoint="BOTTOMLEFT">
+										<Offset>
+											<AbsDimension x="0" y="-2"/>
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+							<Button name="CraftingOrderReagent6" inherits="CraftingOrderItemTemplate" id="6">
+								<Anchors>
+									<Anchor point="LEFT" relativeTo="CraftingOrderReagent5" relativePoint="RIGHT">
+										<Offset>
+											<AbsDimension x="0" y="0"/>
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+							<Button name="CraftingOrderReagent7" inherits="CraftingOrderItemTemplate" id="7">
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeTo="CraftingOrderReagent6" relativePoint="BOTTOMLEFT">
+										<Offset>
+											<AbsDimension x="0" y="-2"/>
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+							<Button name="CraftingOrderReagent8" inherits="CraftingOrderItemTemplate" id="8">
+								<Anchors>
+									<Anchor point="LEFT" relativeTo="CraftingOrderReagent7" relativePoint="RIGHT">
+										<Offset>
+											<AbsDimension x="0" y="0"/>
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+						</Frames>
+					</Frame>
+				</ScrollChild>
+			</ScrollFrame>
+			<Button name="CraftingOrderCreateButton" inherits="UIPanelButtonTemplate" text="CREATE">
+				<Size>
+					<AbsDimension x="80" y="22"/>
+				</Size>
+				<Anchors>
+					<Anchor point="CENTER" relativeTo="CraftingOrderFrame" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="224" y="-422"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnClick>
+						CraftingOrderCreateButton_OnClick();
+						CraftingOrderInputBox:ClearFocus();
+					</OnClick>
+				</Scripts>
+			</Button>
+			<Button name="CraftingOrderCancelButton" inherits="UIPanelButtonTemplate" text="EXIT">
+				<Size>
+					<AbsDimension x="80" y="22"/>
+				</Size>
+				<Anchors>
+					<Anchor point="CENTER" relativeTo="CraftingOrderFrame" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="305" y="-422"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnClick function="CraftingOrderCancelButton_OnClick"/>
+				</Scripts>
+			</Button>
+			<Button name="CraftingOrderCreateAllButton" inherits="UIPanelButtonTemplate" text="CREATE_ALL">
+				<Size>
+					<AbsDimension x="80" y="22"/>
+				</Size>
+				<Anchors>
+					<Anchor point="RIGHT" relativeTo="CraftingOrderCreateButton" relativePoint="LEFT">
+						<Offset>
+							<AbsDimension x="-86" y="0"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnClick>
+						CraftingOrderCreateAllButton_OnClick();
+						CraftingOrderInputBox:ClearFocus();
+					</OnClick>
+				</Scripts>
+			</Button>
+			<Button name="CraftingOrderDecrementButton">
+				<Size>
+					<AbsDimension x="23" y="22"/>
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="CraftingOrderCreateAllButton" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="3" y="0"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnClick>
+						CraftingOrderFrameDecrement_OnClick();
+						CraftingOrderInputBox:ClearFocus();
+					</OnClick>
+				</Scripts>
+				<NormalTexture file="Interface\Buttons\UI-SpellbookIcon-PrevPage-Up"/>
+				<PushedTexture file="Interface\Buttons\UI-SpellbookIcon-PrevPage-Down"/>
+				<DisabledTexture file="Interface\Buttons\UI-SpellbookIcon-PrevPage-Disabled"/>
+				<HighlightTexture file="Interface\Buttons\UI-Common-MouseHilight" alphaMode="ADD"/>
+			</Button>
+			<EditBox name="CraftingOrderInputBox" letters="3" numeric="true" autoFocus="false">
+				<Size>
+					<AbsDimension x="30" y="20"/>
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="CraftingOrderDecrementButton" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="4" y="0"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Layers>
+					<Layer level="BACKGROUND">
+						<Texture name="$parentLeft" file="Interface\Common\Common-Input-Border">
+							<Size>
+								<AbsDimension x="8" y="20"/>
+							</Size>
+							<Anchors>
+								<Anchor point="TOPLEFT">
+									<Offset>
+										<AbsDimension x="-5" y="0"/>
+									</Offset>
+								</Anchor>
+							</Anchors>
+							<TexCoords left="0" right="0.0625" top="0" bottom="0.625"/>
+						</Texture>
+						<Texture name="$parentRight" file="Interface\Common\Common-Input-Border">
+							<Size>
+								<AbsDimension x="8" y="20"/>
+							</Size>
+							<Anchors>
+								<Anchor point="RIGHT">
+									<Offset>
+										<AbsDimension x="0" y="0"/>
+									</Offset>
+								</Anchor>
+							</Anchors>
+							<TexCoords left="0.9375" right="1.0" top="0" bottom="0.625"/>
+						</Texture>
+						<Texture name="$parentMiddle" file="Interface\Common\Common-Input-Border">
+							<Size>
+								<AbsDimension x="10" y="20"/>
+							</Size>
+							<Anchors>
+								<Anchor point="LEFT" relativeTo="$parentLeft" relativePoint="RIGHT"/>
+								<Anchor point="RIGHT" relativeTo="$parentRight" relativePoint="LEFT"/>
+							</Anchors>
+							<TexCoords left="0.0625" right="0.9375" top="0" bottom="0.625"/>
+						</Texture>
+					</Layer>
+				</Layers>
+				<Scripts>
+					<OnEnterPressed function="EditBox_ClearFocus"/>
+					<OnEscapePressed>
+						CraftingOrderFrame_Hide();
+					</OnEscapePressed>
+					<OnTextChanged>
+						if ( this:GetText() == "0" ) then
+							this:SetText("1");
+						end
+					</OnTextChanged>
+					<OnEditFocusLost function="EditBox_ClearHighlight"/>
+					<OnEditFocusGained function="EditBox_HighlightText"/>
+				</Scripts>
+				<FontString inherits="GameFontNormalSmall"/>
+			</EditBox>
+			<Button name="CraftingOrderIncrementButton">
+				<Size>
+					<AbsDimension x="23" y="22"/>
+				</Size>
+				<Anchors>
+					<Anchor point="RIGHT" relativeTo="CraftingOrderCreateButton" relativePoint="LEFT">
+						<Offset>
+							<AbsDimension x="-3" y="0"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnClick>
+						CraftingOrderFrameIncrement_OnClick();
+						CraftingOrderInputBox:ClearFocus();
+					</OnClick>
+				</Scripts>
+				<NormalTexture file="Interface\Buttons\UI-SpellbookIcon-NextPage-Up"/>
+				<PushedTexture file="Interface\Buttons\UI-SpellbookIcon-NextPage-Down"/>
+				<DisabledTexture file="Interface\Buttons\UI-SpellbookIcon-NextPage-Disabled"/>
+				<HighlightTexture file="Interface\Buttons\UI-Common-MouseHilight" alphaMode="ADD"/>
+			</Button>
+			<Button name="CraftingOrderFrameCloseButton" inherits="UIPanelCloseButton">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="CraftingOrderFrame" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="-29" y="-8"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+		</Frames>
+		<Scripts>
+			<OnLoad function="CraftingOrderFrame_OnLoad"/>
+			<OnShow>
+				CraftingOrderInputBox:SetNumber(1);
+				PlaySound("igCharacterInfoOpen");
+			</OnShow>
+			<OnHide>
+				CraftingOrderFrame_OnHide();
+				PlaySound("igCharacterInfoClose");
+			</OnHide>
+		</Scripts>
+	</Frame>
 </Ui>

@@ -42,7 +42,7 @@ Defer:
   loot data.
 - The upstream `SkillLine.dbc` and `patch-I.MPQ`. These can overwrite or conflict
   with Turtle-specific client data and must not be distributed by the module.
-- Northrend/Outland NPC spawns and level-80 profession assumptions.
+- Northrend/Outland-specific profession assumptions.
 
 ## Target structure
 
@@ -105,11 +105,11 @@ unrelated module.
 2. Create a feature matrix marking every upstream feature as retained, adapted,
    or deferred.
 3. Confirm that profession tiers stop at Artisan/300.
-4. Decide which NPC templates are included and how administrators place them.
-   The recommended default is to ship templates/mappings without automatic
-   world spawns.
-5. Reserve collision-free creature entries, module string IDs, and any other
-   module-owned numeric ranges after checking the target database.
+4. Use existing profession trainers as the interaction points. New installs
+   must not require module-owned creature templates, spawns, gossip rows, or
+   `script_name` bindings.
+5. Retain the first-release creature range as legacy compatibility data only;
+   never reuse or delete it automatically during upgrade/rollback.
 
 Exit gate: the feature matrix and ID allocation are reviewed before SQL is
 written.
@@ -162,8 +162,10 @@ focused tests.
 5. Keep uninstall/drop statements out of the auto-update directories.
 6. Store cooldown scope explicitly so account-wide cooldowns do not depend on a
    surviving character row.
-7. Detect occupied NPC/string identifiers and fail with a clear diagnostic
-   instead of overwriting unrelated data.
+7. Treat rows in `crafting_order_npc` and old dedicated-NPC bindings as
+   optional legacy data. Keep the compatibility table migration available for
+   upgrades, but require no World-DB change or rows for runtime trainer
+   discovery and never overwrite unrelated creature rows.
 
 Exit gate: migrations succeed against disposable copies of the world and
 character databases, and a second startup makes no destructive changes.
@@ -312,11 +314,13 @@ host.
 2. Install the server module with its feature flag disabled.
 3. Permit the module in `Database.AutoUpdate.AllowedModules` and run migrations
    on a staging copy first.
-4. Enable one crafting NPC/service at a time and monitor errors and economic
-   results.
+4. Enable `CraftingOrders.TrainerGossip` and verify one existing trainer per
+   supported profession (including all Enchanting services) while monitoring
+   errors and economic results.
 5. Distribute the matching addon only after the protocol version is frozen.
-6. Roll back by disabling the module and removing optional NPC spawns. Preserve
-   unlock and cooldown tables for recovery; do not drop them automatically.
+6. Roll back by disabling the module's enable flags. Preserve legacy dedicated
+   NPC templates/bindings and unlock/cooldown tables for recovery; do not drop
+   or delete them automatically.
 7. Client rollback consists only of disabling/removing the addon because the
    module does not ship replacement DBC or MPQ files.
 
@@ -335,7 +339,7 @@ The first release is complete when:
 - All supported professions, including Turtle Jewelcrafting, pass end-to-end
   tests.
 - The addon runs without Lua errors in the actual Turtle 1.12 client.
-- Configuration, installation, addon deployment, NPC placement, and rollback
+- Configuration, installation, addon deployment, trainer discovery, and rollback
   are documented in the module README.
 
 ## Estimated effort

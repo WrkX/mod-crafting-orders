@@ -39,6 +39,55 @@ bool IsConsumableReagent(Item* item)
     Bag* bag = item->ToBag();
     return !bag || bag->IsEmpty();
 }
+
+void NoteProfessionCap(std::map<uint32, uint32>& professionCaps, uint32 professionId, uint32 maxSkillRank)
+{
+    if (!CraftingOrdersDomain::IsSupportedProfession(professionId) || !maxSkillRank)
+        return;
+    uint32& current = professionCaps[professionId];
+    current = std::max(current, std::min(maxSkillRank, CraftingOrdersDomain::ARTISAN_SKILL_CAP));
+}
+
+void NoteProfessionSpellCaps(SpellEntry const* spellInfo, std::map<uint32, uint32>& professionCaps,
+    uint32 depth = 0)
+{
+    if (!spellInfo || depth > 4)
+        return;
+
+    for (uint32 i = 0; i < MAX_EFFECT_INDEX; ++i)
+    {
+        if (spellInfo->Effect[i] == SPELL_EFFECT_SKILL)
+        {
+            int32 const step = spellInfo->CalculateSimpleValue(SpellEffectIndex(i));
+            if (step > 0)
+            {
+                uint32 const artisanStep = CraftingOrdersDomain::ARTISAN_SKILL_CAP / 75;
+                NoteProfessionCap(professionCaps, uint32(spellInfo->EffectMiscValue[i]),
+                    std::min(uint32(step), artisanStep) * 75);
+            }
+        }
+        else if (spellInfo->Effect[i] == SPELL_EFFECT_LEARN_SPELL && spellInfo->EffectTriggerSpell[i])
+            NoteProfessionSpellCaps(sSpellMgr.GetSpellEntry(spellInfo->EffectTriggerSpell[i]), professionCaps, depth + 1);
+    }
+}
+
+void NoteTrainerCapabilities(TrainerSpellData const* data, std::map<uint32, uint32>& professionCaps)
+{
+    if (!data)
+        return;
+
+    for (auto const& entry : data->spellList)
+    {
+        TrainerSpell const& trainerSpell = entry.second;
+        if (CraftingOrdersDomain::IsSupportedProfession(trainerSpell.reqSkill))
+        {
+            uint32 const tier = CraftingOrdersDomain::GetSkillTier(trainerSpell.reqSkillValue);
+            if (tier)
+                NoteProfessionCap(professionCaps, trainerSpell.reqSkill, tier * 75);
+        }
+        NoteProfessionSpellCaps(sSpellMgr.GetSpellEntry(trainerSpell.spell), professionCaps);
+    }
+}
 }
 
 CraftingOrders& CraftingOrders::Instance()
@@ -58,6 +107,91 @@ NpcBinding const* CraftingOrders::GetNpcBinding(uint32 creatureEntry) const
     if (it == _npcBindings.end() || !it->second.available)
         return nullptr;
     return &it->second;
+}
+
+bool CraftingOrders::ResolveNpcBinding(Creature const* creature, NpcBinding& binding) const
+{
+    if (!creature)
+        return false;
+
+    // Explicit bindings (the legacy crafting-order NPCs) take precedence and
+    // retain their configured service exactly as before.
+    if (NpcBinding const* configured = GetNpcBinding(creature->GetEntry()))
+    {
+        binding = *configured;
+        if (creature->IsTrainer() && creature->GetCreatureInfo() &&
+            creature->GetCreatureInfo()->trainer_type == TRAINER_TYPE_TRADESKILLS)
+        {
+            std::map<uint32, uint32> professionCaps;
+            NoteTrainerCapabilities(creature->GetTrainerSpells(), professionCaps);
+            NoteTrainerCapabilities(creature->GetTrainerTemplateSpells(), professionCaps);
+            auto capability = professionCaps.find(binding.professionId);
+            if (capability != professionCaps.end())
+                binding.maxSkillRank = capability->second;
+        }
+        return true;
+    }
+
+    // Profession trainers are discovered from the core's already loaded
+    // trainer data.  No creature_template or script-name mutation is needed.
+    if (!creature->IsTrainer() || !creature->GetCreatureInfo() ||
+        creature->GetCreatureInfo()->trainer_type != TRAINER_TYPE_TRADESKILLS)
+        return false;
+
+    std::map<uint32, uint32> professionCaps;
+    NoteTrainerCapabilities(creature->GetTrainerSpells(), professionCaps);
+    NoteTrainerCapabilities(creature->GetTrainerTemplateSpells(), professionCaps);
+
+    // Prefer the lowest supported profession deterministically, but only when
+    // it actually has valid trainer recipes. This avoids adding an empty
+    // module menu to a trainer whose rows happen to use a supported skillline
+    // while all of its spells were filtered out during recipe loading.
+    uint32 professionId = CraftingOrdersDomain::PROF_NONE;
+    uint32 maxSkillRank = 0;
+    for (auto const& capability : professionCaps)
+    {
+        uint32 const candidate = capability.first;
+        auto recipes = _trainerRecipes.find(candidate);
+        if (recipes != _trainerRecipes.end() && !recipes->second.empty())
+        {
+            professionId = candidate;
+            maxSkillRank = capability.second;
+            break;
+        }
+    }
+
+    // Some cores/data sets only expose the profession-learning spell on the
+    // creature template.  Its SKILL effect is an equally authoritative
+    // fallback when no recipe row is present on that trainer.
+    if (!professionId && creature->GetCreatureInfo()->trainer_spell)
+    {
+        std::map<uint32, uint32> fallbackCaps;
+        NoteProfessionSpellCaps(sSpellMgr.GetSpellEntry(creature->GetCreatureInfo()->trainer_spell), fallbackCaps);
+        for (auto const& capability : fallbackCaps)
+        {
+            uint32 const candidate = capability.first;
+            auto recipes = _trainerRecipes.find(candidate);
+            if (recipes != _trainerRecipes.end() && !recipes->second.empty())
+            {
+                professionId = candidate;
+                maxSkillRank = capability.second;
+                break;
+            }
+        }
+    }
+
+    if (!professionId)
+        return false;
+
+    binding.entry = creature->GetEntry();
+    binding.professionId = professionId;
+    binding.maxSkillRank = maxSkillRank;
+    binding.service = professionId == CraftingOrdersDomain::PROF_ENCHANTING
+        ? CraftingOrdersDomain::SERVICE_ENCHANT
+        : CraftingOrdersDomain::SERVICE_CRAFT;
+    binding.scriptName.clear();
+    binding.available = true;
+    return true;
 }
 
 RecipeData const* CraftingOrders::GetRecipeForSpell(uint32 spellId) const
@@ -336,7 +470,8 @@ void CraftingOrders::LoadRecipes()
         loaded, bonusLoaded, skipped);
 }
 
-std::vector<RecipeData> CraftingOrders::GetAvailableRecipes(Player* player, uint32 professionId) const
+std::vector<RecipeData> CraftingOrders::GetAvailableRecipes(Player* player, uint32 professionId,
+    uint32 maxSkillRank) const
 {
     std::vector<RecipeData> available;
     auto it = _trainerRecipes.find(professionId);
@@ -344,7 +479,8 @@ std::vector<RecipeData> CraftingOrders::GetAvailableRecipes(Player* player, uint
     {
         for (RecipeData const& recipe : it->second)
         {
-            if (recipe.goldFeeMultiplier > 0.0f)
+            if (recipe.goldFeeMultiplier > 0.0f &&
+                CraftingOrdersDomain::RecipeWithinSkillCap(recipe.reqSkillRank, maxSkillRank))
                 available.push_back(recipe);
         }
     }
@@ -361,7 +497,8 @@ std::vector<RecipeData> CraftingOrders::GetAvailableRecipes(Player* player, uint
         {
             uint32 spellId = bonus->Fetch()[0].GetUInt32();
             auto spIt = _spellRecipeMap.find(spellId);
-            if (spIt == _spellRecipeMap.end() || spIt->second.goldFeeMultiplier <= 0.0f)
+            if (spIt == _spellRecipeMap.end() || spIt->second.goldFeeMultiplier <= 0.0f ||
+                !CraftingOrdersDomain::RecipeWithinSkillCap(spIt->second.reqSkillRank, maxSkillRank))
                 continue;
             bool exists = false;
             for (RecipeData const& recipe : available)
@@ -508,14 +645,19 @@ Item* CraftingOrders::FindOwnedItem(Player* player, uint32 bag, uint32 slot, uin
     return item;
 }
 
-bool CraftingOrders::OpenSession(Player* player, Creature* creature)
+bool CraftingOrders::OpenSession(Player* player, Creature* creature, uint32 serviceOverride)
 {
     if (!player || !creature || !Enabled())
         return false;
-    NpcBinding const* binding = GetNpcBinding(creature->GetEntry());
-    if (!binding)
+    NpcBinding binding;
+    if (!ResolveNpcBinding(creature, binding))
         return false;
-    if (binding->service == CraftingOrdersDomain::SERVICE_DISENCHANT && !sCraftingOrdersConfig.DisenchantEnabled())
+    uint32 service = serviceOverride ? serviceOverride : binding.service;
+    if (service == CraftingOrdersDomain::SERVICE_DISENCHANT && !sCraftingOrdersConfig.DisenchantEnabled())
+        return false;
+    if (service == CraftingOrdersDomain::SERVICE_DISENCHANT &&
+        binding.professionId == CraftingOrdersDomain::PROF_ENCHANTING &&
+        !sCraftingOrdersConfig.EnchantingDisenchantEnabled())
         return false;
 
     CraftingSession session;
@@ -526,8 +668,9 @@ bool CraftingOrders::OpenSession(Player* player, Creature* creature)
     session.x = player->GetPositionX();
     session.y = player->GetPositionY();
     session.z = player->GetPositionZ();
-    session.professionId = binding->professionId;
-    session.service = binding->service;
+    session.professionId = binding.professionId;
+    session.service = service;
+    session.maxSkillRank = binding.maxSkillRank;
     session.createdMs = GetNowMs();
     session.expiresMs = session.createdMs + CraftingOrdersDomain::SESSION_TTL_MS;
     _sessions[session.playerGuid] = session;
@@ -673,6 +816,11 @@ bool CraftingOrders::Craft(Player* player, uint32 spellId, uint32 quantity, std:
     if (!recipe || recipe->professionId != session->professionId)
     {
         result = "recipe not available";
+        return false;
+    }
+    if (!CraftingOrdersDomain::RecipeWithinSkillCap(recipe->reqSkillRank, session->maxSkillRank))
+    {
+        result = "this recipe is above the trainer's skill level";
         return false;
     }
     if (!PlayerCanUseRecipe(player, *recipe))
@@ -870,6 +1018,13 @@ bool CraftingOrders::Enchant(Player* player, uint32 spellId, uint32 bag, uint32 
     if (recipe->professionId != CraftingOrdersDomain::PROF_ENCHANTING)
     {
         result = "enchant not available";
+        return false;
+    }
+    CraftingSession* session = GetSession(player);
+    if (!session || recipe->professionId != session->professionId ||
+        !CraftingOrdersDomain::RecipeWithinSkillCap(recipe->reqSkillRank, session->maxSkillRank))
+    {
+        result = "this enchant is above the trainer's skill level";
         return false;
     }
     if (!PlayerCanUseRecipe(player, *recipe))
@@ -1162,14 +1317,20 @@ bool CraftingOrders::HandIn(Player* player, uint32 itemGuidLow, std::string& res
     }
 
     std::string recipeName = item->GetProto()->Name1;
-    uint8 bag = item->GetBagSlot();
-    uint8 slot = item->GetSlot();
     if (!AddPlayerRecipe(player, session->professionId, taughtSpell))
     {
         result = "failed to save recipe unlock";
         return false;
     }
-    player->DestroyItem(bag, slot, true);
+    // Recipe items can be stackable. Consume exactly one copy from the
+    // selected item, rather than the first matching stack in the inventory.
+    uint32 consumeCount = 1;
+    player->DestroyItemCount(item, consumeCount, true);
     result = "Unlocked recipe: " + recipeName;
     return true;
+}
+
+bool CraftingOrders::HandInRecipe(Player* player, uint32 itemGuidLow, std::string& result)
+{
+    return HandIn(player, itemGuidLow, result);
 }

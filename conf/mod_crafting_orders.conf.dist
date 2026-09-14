@@ -4,8 +4,10 @@
 # mod-crafting-orders
 ###############################################
 #
-# Keep disabled until world/character migrations have been applied on a
-# staging copy. The module does not spawn NPCs automatically.
+# Keep disabled until the character migration has been applied on a staging
+# copy. The world migration is optional legacy compatibility data. Existing
+# profession trainers are augmented at runtime; the module does not create NPCs
+# or alter creature_template rows.
 #
 
 #
@@ -15,6 +17,25 @@
 #
 
 CraftingOrders.Enable = 0
+
+#
+#    CraftingOrders.TrainerGossip.Enable
+#        Add the module's gossip options to existing profession trainers
+#        discovered from their trainer data. 1: enabled, 0: disabled.
+#        Default: 1
+#
+
+CraftingOrders.TrainerGossip.Enable = 1
+
+#
+#    CraftingOrders.TrainerGossip.EnchantingDisenchant
+#        Add disenchanting to Enchanting trainers. Enchanting trainers always
+#        retain crafting/direct-enchant and recipe-hand-in options when
+#        TrainerGossip is enabled. 1: enabled, 0: disabled.
+#        Default: 1
+#
+
+CraftingOrders.TrainerGossip.EnchantingDisenchant = 1
 
 #
 #    CraftingOrders.DefaultFeePercent
