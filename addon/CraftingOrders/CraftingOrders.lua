@@ -348,6 +348,27 @@ local function GetEnchantTargetLink(rec)
     return nil;
 end
 
+local function GetCraftingOrderRecipeTooltipLink(rec)
+    if not rec then
+        return nil;
+    end
+
+    local targetLink = GetEnchantTargetLink(rec);
+    if targetLink then
+        return targetLink;
+    end
+
+    if rec.itemId and rec.itemId > 0 then
+        return "item:" .. rec.itemId .. ":0:0:0:0:0:0:0";
+    end
+
+    if rec.spellId and rec.spellId > 0 then
+        return "spell:" .. rec.spellId;
+    end
+
+    return nil;
+end
+
 local ItemTextureCache = {};
 
 local function GetCraftingOrderItemTexture(itemId)
@@ -1170,6 +1191,8 @@ end
 local function CraftingOrderFrame_SetSelectionBase(index)
     if index == 0 then
         CraftingOrderFrame.cooldownRecipe = nil;
+        CraftingOrderSkillIcon.itemLink = nil;
+        CraftingOrderSkillIcon.itemId = nil;
         CraftingOrderHighlightFrame:Hide();
         CraftingOrderSkillName:Hide();
         CraftingOrderSkillIcon:Hide();
@@ -1226,6 +1249,8 @@ local function CraftingOrderFrame_SetSelectionBase(index)
     -- Icon
     CraftingOrderSkillIcon:Show();
     CraftingOrderSkillIcon:SetNormalTexture(GetRecipeIcon(rec));
+    CraftingOrderSkillIcon.itemLink = GetCraftingOrderRecipeTooltipLink(rec);
+    CraftingOrderSkillIcon.itemId = rec.itemId and rec.itemId > 0 and rec.itemId or nil;
 
     -- Item count on icon
     if rec.numMade > 1 then
@@ -1515,19 +1540,26 @@ end
 
 function CraftingOrderItem_OnEnter(self)
     self = self or this;
-    if State.selectedRecipeIndex > 0 then
+    local itemLink = self and self.itemLink;
+    local itemId = self and self.itemId;
+
+    if not itemLink and State.selectedRecipeIndex > 0 then
         local rec = CraftingOrder_GetRecipeByFilteredIndex(State.selectedRecipeIndex);
-        if rec then
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT");
-            local targetLink = GetEnchantTargetLink(rec);
-            if targetLink then
-                GameTooltip:SetHyperlink(targetLink);
-            elseif rec.itemId and rec.itemId > 0 then
-                GameTooltip:SetHyperlink("item:" .. rec.itemId .. ":0:0:0:0:0:0:0");
-            elseif rec.spellId and rec.spellId > 0 then
-                GameTooltip:SetHyperlink("spell:" .. rec.spellId);
-            end
+        itemLink = GetCraftingOrderRecipeTooltipLink(rec);
+        itemId = rec and rec.itemId or nil;
+    end
+
+    if self and itemLink then
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT");
+        -- Turtle/Vanilla clients can have the icon available while the
+        -- generated hyperlink is not yet in the item cache.  SetItemByID
+        -- resolves those crafted outputs reliably when the API is present.
+        if itemId and GameTooltip.SetItemByID then
+            GameTooltip:SetItemByID(itemId);
+        else
+            GameTooltip:SetHyperlink(itemLink);
         end
+        GameTooltip:Show();
     end
     CursorUpdate(self);
 end
@@ -1949,7 +1981,10 @@ local function HandleCraftingOrderPacket(payload)
     end
     -- The server opens a session with an INIT packet whose request ID is 0;
     -- every response to a client request must carry a positive ID.
-    if (requestId == 0 and opcode ~= "INIT") or part < 1 or total < 1 or part > total then
+    -- CLOSE_UI is an unsolicited server notification, so it intentionally
+    -- uses request ID 0 just like INIT. Do not discard it as a bad response.
+    if (requestId == 0 and opcode ~= "INIT" and opcode ~= "CLOSE_UI") or
+        part < 1 or total < 1 or part > total then
         return;
     end
 

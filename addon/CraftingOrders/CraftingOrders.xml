@@ -716,7 +716,9 @@
 											end
 										end
 									</OnClick>
-									<OnEnter function="CraftingOrderItem_OnEnter"/>
+									<OnEnter>
+										CraftingOrderItem_OnEnter(this);
+									</OnEnter>
 									<OnLeave>
 										GameTooltip:Hide();
 										ResetCursor();
