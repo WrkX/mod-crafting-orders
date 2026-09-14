@@ -1317,14 +1317,20 @@ bool CraftingOrders::HandIn(Player* player, uint32 itemGuidLow, std::string& res
     }
 
     std::string recipeName = item->GetProto()->Name1;
-    uint8 bag = item->GetBagSlot();
-    uint8 slot = item->GetSlot();
     if (!AddPlayerRecipe(player, session->professionId, taughtSpell))
     {
         result = "failed to save recipe unlock";
         return false;
     }
-    player->DestroyItem(bag, slot, true);
+    // Recipe items can be stackable. Consume exactly one copy from the
+    // selected item, rather than the first matching stack in the inventory.
+    uint32 consumeCount = 1;
+    player->DestroyItemCount(item, consumeCount, true);
     result = "Unlocked recipe: " + recipeName;
     return true;
+}
+
+bool CraftingOrders::HandInRecipe(Player* player, uint32 itemGuidLow, std::string& result)
+{
+    return HandIn(player, itemGuidLow, result);
 }

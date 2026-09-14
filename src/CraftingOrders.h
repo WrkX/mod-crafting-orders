@@ -134,6 +134,7 @@ public:
     void SetCooldown(Player* player, uint32 spellId, uint32 cooldownSecs);
     bool HasPlayerRecipe(Player* player, uint32 professionId, uint32 spellId) const;
     bool AddPlayerRecipe(Player* player, uint32 professionId, uint32 spellId);
+    bool HandInRecipe(Player* player, uint32 itemGuidLow, std::string& result);
     RecipeData const* ResolveRecipeItem(ItemPrototype const* proto, uint32 professionId, uint32& taughtSpell) const;
     bool IsEnchantmentSpell(SpellEntry const* spellInfo, uint32* enchantId = nullptr, bool* permanent = nullptr) const;
 

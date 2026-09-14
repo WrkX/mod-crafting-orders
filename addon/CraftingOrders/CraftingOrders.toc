@@ -1,5 +1,6 @@
 ## Interface: 11200
 ## Title: Crafting Orders
-## Notes: Client UI for Tortoise crafting-order NPCs.
-## Version: 1.0
+## Notes: Crafting-order UI styled after the Vanilla profession menu.
+## Version: 2.0
+## Dependencies: Blizzard_TrainerUI
 CraftingOrders.xml
