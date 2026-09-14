@@ -879,11 +879,48 @@ bool CraftingOrders::Craft(Player* player, uint32 spellId, uint32 quantity, std:
         return false;
     }
 
+    uint32 craftingTimeMinutes = sCraftingOrdersConfig.CraftingTimeMinutes();
+    bool deliverByMail = craftingTimeMinutes > 0;
+
     ItemPosCountVec dest;
-    if (player->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, recipe->createdItemId, outputCount) != EQUIP_ERR_OK)
+    if (!deliverByMail && player->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, recipe->createdItemId, outputCount) != EQUIP_ERR_OK)
     {
         result = "Not enough inventory space";
         return false;
+    }
+
+    std::vector<Item*> mailedItems;
+    auto cleanupMailedItems = [&mailedItems]()
+    {
+        for (Item* item : mailedItems)
+            delete item;
+        mailedItems.clear();
+    };
+
+    if (deliverByMail)
+    {
+        ItemPrototype const* outputProto = sObjectMgr.GetItemPrototype(recipe->createdItemId);
+        uint32 maxStackSize = outputProto ? outputProto->GetMaxStackSize() : 1;
+        if (!maxStackSize)
+            maxStackSize = 1;
+
+        uint32 remaining = outputCount;
+        while (remaining)
+        {
+            uint32 stackCount = std::min(remaining, maxStackSize);
+            Item* item = Item::CreateItem(recipe->createdItemId, stackCount, player);
+            if (!item)
+            {
+                cleanupMailedItems();
+                sLog.outError("[mod-crafting-orders] Failed to create delayed crafted item %u for player %u.",
+                    recipe->createdItemId, player->GetGUIDLow());
+                result = "Failed to create crafted item; no materials or fee were charged";
+                return false;
+            }
+
+            mailedItems.push_back(item);
+            remaining -= stackCount;
+        }
     }
 
     // Snapshot reagent stacks before storing the result.  This matters for
@@ -947,17 +984,21 @@ bool CraftingOrders::Craft(Player* player, uint32 spellId, uint32 quantity, std:
         }
     }
 
-    // Store the result before charging the player.  CanStoreNewItem is only a
-    // preflight check; item creation/storage can still fail (for example if
-    // an item hook rejects it).  Never consume reagents or gold until the
-    // result is known to be in the player's inventory.
-    Item* created = player->StoreNewItem(dest, recipe->createdItemId, true, 0);
-    if (!created)
+    // Store or prepare the result before charging the player. CanStoreNewItem
+    // is only a preflight check; item creation/storage can still fail (for
+    // example if an item hook rejects it). Never consume reagents or gold
+    // until the result is known to be ready for delivery.
+    Item* created = nullptr;
+    if (!deliverByMail)
     {
-        sLog.outError("[mod-crafting-orders] Failed to store crafted item %u for player %u after a successful inventory preflight.",
-            recipe->createdItemId, player->GetGUIDLow());
-        result = "Failed to create crafted item; no materials or fee were charged";
-        return false;
+        created = player->StoreNewItem(dest, recipe->createdItemId, true, 0);
+        if (!created)
+        {
+            sLog.outError("[mod-crafting-orders] Failed to store crafted item %u for player %u after a successful inventory preflight.",
+                recipe->createdItemId, player->GetGUIDLow());
+            result = "Failed to create crafted item; no materials or fee were charged";
+            return false;
+        }
     }
 
     for (MaterialPlan const& plan : materialPlans)
@@ -970,7 +1011,8 @@ bool CraftingOrders::Craft(Player* player, uint32 spellId, uint32 quantity, std:
             Item* sourceItem = player->GetItemByGuid(ObjectGuid(HIGHGUID_ITEM, source.itemGuidLow));
             if (!sourceItem || sourceItem->GetEntry() != plan.itemId || !IsConsumableReagent(sourceItem))
             {
-                sLog.outError("[mod-crafting-orders] Reagent %u changed during craft commit for player %u after storing crafted item.",
+                cleanupMailedItems();
+                sLog.outError("[mod-crafting-orders] Reagent %u changed during craft commit for player %u after preparing crafted item.",
                     plan.itemId, player->GetGUIDLow());
                 result = "Crafting inventory changed unexpectedly; please contact a game master";
                 return false;
@@ -983,7 +1025,8 @@ bool CraftingOrders::Craft(Player* player, uint32 spellId, uint32 quantity, std:
             remaining -= requested - unremoved;
             if (unremoved)
             {
-                sLog.outError("[mod-crafting-orders] Failed to consume reagent %u for player %u after storing crafted item.",
+                cleanupMailedItems();
+                sLog.outError("[mod-crafting-orders] Failed to consume reagent %u for player %u after preparing crafted item.",
                     plan.itemId, player->GetGUIDLow());
                 result = "Failed to consume all crafting materials; please contact a game master";
                 return false;
@@ -991,20 +1034,46 @@ bool CraftingOrders::Craft(Player* player, uint32 spellId, uint32 quantity, std:
         }
         if (remaining)
         {
-            sLog.outError("[mod-crafting-orders] Reagent plan for item %u was incomplete for player %u after storing crafted item.",
+            cleanupMailedItems();
+            sLog.outError("[mod-crafting-orders] Reagent plan for item %u was incomplete for player %u after preparing crafted item.",
                 plan.itemId, player->GetGUIDLow());
             result = "Failed to consume all crafting materials; please contact a game master";
             return false;
         }
     }
     player->ModifyMoney(-int32(feeTotal));
-    player->SendNewItem(created, outputCount, true, false);
+
+    if (deliverByMail)
+    {
+        ItemPrototype const* proto = sObjectMgr.GetItemPrototype(recipe->createdItemId);
+        std::string itemName = proto ? proto->Name1 : "item";
+        for (Item* item : mailedItems)
+        {
+            // This core exposes one mail attachment to the Vanilla client, so
+            // split multi-stack results into separate delayed mails.
+            item->SaveToDB();
+            MailDraft mail("Crafting Order Complete", "Your crafted item is ready.");
+            mail.AddItem(item);
+            mail.SendMailTo(MailReceiver(player, player->GetObjectGuid()),
+                MailSender(MAIL_CREATURE, session->creatureEntry), MAIL_CHECK_MASK_COPIED,
+                craftingTimeMinutes * MINUTE);
+        }
+
+        result = "Crafted: " + itemName + " x" + std::to_string(outputCount) +
+            "; arriving by mail in " + std::to_string(craftingTimeMinutes) +
+            (craftingTimeMinutes == 1 ? " minute" : " minutes");
+    }
+    else
+    {
+        player->SendNewItem(created, outputCount, true, false);
+
+        ItemPrototype const* proto = sObjectMgr.GetItemPrototype(recipe->createdItemId);
+        result = std::string("Crafted: ") + (proto ? proto->Name1 : "item") + " x" + std::to_string(outputCount);
+    }
 
     if (sCraftingOrdersConfig.EnforceCooldowns() && recipe->spellCooldownSecs > 0)
         SetCooldown(player, spellId, recipe->spellCooldownSecs);
 
-    ItemPrototype const* proto = sObjectMgr.GetItemPrototype(recipe->createdItemId);
-    result = std::string("Crafted: ") + (proto ? proto->Name1 : "item") + " x" + std::to_string(outputCount);
     return true;
 }
 

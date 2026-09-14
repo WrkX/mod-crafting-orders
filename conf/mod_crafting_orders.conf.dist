@@ -16,7 +16,7 @@
 #        Default: 0
 #
 
-CraftingOrders.Enable = 0
+CraftingOrders.Enable = 1
 
 #
 #    CraftingOrders.TrainerGossip.Enable
@@ -38,12 +38,21 @@ CraftingOrders.TrainerGossip.Enable = 1
 CraftingOrders.TrainerGossip.EnchantingDisenchant = 1
 
 #
+#    CraftingOrders.CraftingTimeMinutes
+#        Delay crafted item delivery by this many minutes. The result is sent
+#        by mail when greater than 0; 0 delivers the result immediately to the
+#        player's inventory. Default: 0
+#
+
+CraftingOrders.CraftingTimeMinutes = 0
+
+#
 #    CraftingOrders.DefaultFeePercent
 #        Gold fee as a fraction of the crafted item's vendor sell price.
 #        Default: 1.0
 #
 
-CraftingOrders.DefaultFeePercent = 1.0
+CraftingOrders.DefaultFeePercent = 100.0
 
 #
 #    CraftingOrders.MinFeeCopper
@@ -67,9 +76,9 @@ CraftingOrders.EnchantFeePerSkillPoint = 100
 #
 
 CraftingOrders.FeeMultiplier.Apprentice = 1.0
-CraftingOrders.FeeMultiplier.Journeyman = 2.0
-CraftingOrders.FeeMultiplier.Expert = 3.0
-CraftingOrders.FeeMultiplier.Artisan = 4.0
+CraftingOrders.FeeMultiplier.Journeyman = 4.0
+CraftingOrders.FeeMultiplier.Expert = 6.0
+CraftingOrders.FeeMultiplier.Artisan = 8.0
 
 #
 #    CraftingOrders.MaxQuantity

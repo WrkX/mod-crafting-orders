@@ -86,6 +86,7 @@ public:
     bool Enabled() const { return _enabled; }
     bool TrainerGossipEnabled() const { return _trainerGossipEnabled; }
     bool EnchantingDisenchantEnabled() const { return _enchantingDisenchantEnabled; }
+    uint32 CraftingTimeMinutes() const { return _craftingTimeMinutes; }
 
     CraftingOrdersDomain::FeeConfig const& Fees() const { return _fees; }
     bool EnforceCooldowns() const { return _enforceCooldowns; }
@@ -102,6 +103,7 @@ private:
     bool _enabled = false;
     bool _trainerGossipEnabled = true;
     bool _enchantingDisenchantEnabled = true;
+    uint32 _craftingTimeMinutes = 0;
     bool _enforceCooldowns = true;
     bool _accountWideCooldowns = false;
     bool _disenchantEnabled = true;

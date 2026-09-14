@@ -1,6 +1,7 @@
 #include "CraftingOrders.h"
 #include "Config/Config.h"
 #include "Log.h"
+#include <algorithm>
 #include <cmath>
 
 namespace
@@ -30,6 +31,10 @@ void CraftingOrdersConfig::Load()
     _enabled = sConfig.GetBoolDefault("CraftingOrders.Enable", false);
     _trainerGossipEnabled = sConfig.GetBoolDefault("CraftingOrders.TrainerGossip.Enable", true);
     _enchantingDisenchantEnabled = sConfig.GetBoolDefault("CraftingOrders.TrainerGossip.EnchantingDisenchant", true);
+    int32 craftingTimeMinutes = sConfig.GetIntDefault("CraftingOrders.CraftingTimeMinutes", 0);
+    uint32 const maxCraftingTimeMinutes = 0xFFFFFFFFu / 60u;
+    _craftingTimeMinutes = craftingTimeMinutes < 0 ? 0 :
+        std::min(uint32(craftingTimeMinutes), maxCraftingTimeMinutes);
     _enforceCooldowns = sConfig.GetBoolDefault("CraftingOrders.EnforceCooldowns", true);
     _accountWideCooldowns = sConfig.GetBoolDefault("CraftingOrders.AccountWideCooldowns", false);
     _disenchantEnabled = sConfig.GetBoolDefault("CraftingOrders.Disenchant.Enable", true);
@@ -70,6 +75,6 @@ void CraftingOrdersConfig::Load()
     _allow = CraftingOrdersDomain::ParseIdList(sConfig.GetStringDefault("CraftingOrders.RecipeAllow", ""));
     _deny = CraftingOrdersDomain::ParseIdList(sConfig.GetStringDefault("CraftingOrders.RecipeDeny", ""));
 
-    sLog.outString("[mod-crafting-orders] Config loaded (enable=%u, maxQuantity=%u, overrides=%u, allow=%u, deny=%u)",
-        uint32(_enabled), _maxQuantity, uint32(_overrides.size()), uint32(_allow.size()), uint32(_deny.size()));
+    sLog.outString("[mod-crafting-orders] Config loaded (enable=%u, craftingTimeMinutes=%u, maxQuantity=%u, overrides=%u, allow=%u, deny=%u)",
+        uint32(_enabled), _craftingTimeMinutes, _maxQuantity, uint32(_overrides.size()), uint32(_allow.size()), uint32(_deny.size()));
 }

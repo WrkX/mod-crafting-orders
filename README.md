@@ -53,6 +53,12 @@ config directory. Keep `CraftingOrders.Enable = 0` until the character
 migration has been applied on a staging copy. The world migration is optional
 and only provides compatibility storage for legacy dedicated-NPC bindings.
 
+`CraftingOrders.CraftingTimeMinutes` controls crafted-item delivery. It is `0`
+by default, which preserves immediate inventory delivery. A positive value
+consumes the materials and fee immediately, then sends the crafted result by
+mail after that many minutes. Delayed mail delivery is persisted by the core
+mail system and works across relogs and restarts.
+
 Permit the module in `Database.AutoUpdate.AllowedModules` (or use `all`) so
 the character migration runs through the auto-updater. The world migration is
 optional and only needs to be included when retaining legacy binding storage.
