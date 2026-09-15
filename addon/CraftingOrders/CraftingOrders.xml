@@ -611,7 +611,10 @@
 										</Anchor>
 									</Anchors>
 								</FontString>
-								<FontString name="CraftingOrderSkillCooldown" inherits="GameFontRedSmall">
+								<FontString name="CraftingOrderSkillCooldown" inherits="GameFontRedSmall" justifyH="LEFT" justifyV="TOP">
+									<Size>
+										<AbsDimension x="290" y="14"/>
+									</Size>
 									<Anchors>
 										<Anchor point="TOPLEFT" relativeTo="CraftingOrderRequirementLabel" relativePoint="BOTTOMLEFT">
 											<Offset>

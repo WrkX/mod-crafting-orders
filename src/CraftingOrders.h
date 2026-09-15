@@ -132,6 +132,7 @@ public:
         uint32 maxSkillRank = CraftingOrdersDomain::ARTISAN_SKILL_CAP) const;
     uint32 CalculateGoldFee(RecipeData const& recipe) const;
     bool ValidateMaterials(RecipeData const& recipe, Player* player, uint32 quantity, std::string& error) const;
+    uint32 GetCooldownRemaining(Player* player, uint32 spellId) const;
     bool IsOnCooldown(Player* player, uint32 spellId) const;
     void SetCooldown(Player* player, uint32 spellId, uint32 cooldownSecs);
     bool HasPlayerRecipe(Player* player, uint32 professionId, uint32 spellId) const;

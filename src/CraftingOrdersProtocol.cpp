@@ -78,9 +78,7 @@ namespace
 
     uint32 RemainingCooldown(Player* player, uint32 spellId)
     {
-        if (!player || !sCraftingOrders.IsOnCooldown(player, spellId))
-            return 0;
-        return 1;
+        return sCraftingOrders.GetCooldownRemaining(player, spellId);
     }
 
     uint32 ConsumableItemCount(Player* player, uint32 itemId)
@@ -160,6 +158,12 @@ std::vector<std::string> CraftingOrders::BuildRecipeRecords(Player* player, uint
         }
 
         ItemPrototype const* itemTmpl = sObjectMgr.GetItemPrototype(recipe.createdItemId);
+        // A fresh 1.12 client can only populate GetItemInfo for item
+        // prototypes that the server has marked as discovered.  Recipes shown
+        // by this service are no longer secret, so allow the client's
+        // throttled item-query queue to cache their names and icon data.
+        if (itemTmpl)
+            itemTmpl->Discovered = true;
         std::string itemName = itemTmpl ? itemTmpl->Name1 : recipe.displayName;
         uint32 goldFee = CalculateGoldFee(recipe);
         uint32 numAvailable = 0;
@@ -194,6 +198,8 @@ std::vector<std::string> CraftingOrders::BuildRecipeRecords(Player* player, uint
         for (CraftMaterial const& mat : recipe.materials)
         {
             ItemPrototype const* matTmpl = sObjectMgr.GetItemPrototype(mat.itemId);
+            if (matTmpl)
+                matTmpl->Discovered = true;
             std::string matName = matTmpl ? matTmpl->Name1 : "Unknown";
             ss << ";" << mat.itemId << "," << mat.count << ","
                << CraftingOrdersDomain::EscapeField(matName) << ",,"
@@ -250,6 +256,8 @@ std::vector<std::string> CraftingOrders::BuildHandInRecords(Player* player, uint
         RecipeData const* recipe = ResolveRecipeItem(item->GetProto(), professionId, taught);
         if (!recipe || !recipe->requiresUnlock || HasPlayerRecipe(player, professionId, taught))
             return;
+        if (ItemPrototype const* createdItem = sObjectMgr.GetItemPrototype(recipe->createdItemId))
+            createdItem->Discovered = true;
         std::ostringstream ss;
         ss << item->GetGUIDLow() << "," << item->GetEntry() << ","
            << CraftingOrdersDomain::EscapeField(item->GetProto()->Name1) << ","

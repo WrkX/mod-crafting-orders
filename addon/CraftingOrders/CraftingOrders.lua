@@ -100,7 +100,16 @@ State = {
     collapsedHeaders = {},
     recipeBuffer    = "",
     rangeCheckElapsed = 0,
+    inventoryRefreshPending = false,
+    inventoryRefreshDelay = 0,
+    lastInventoryRefreshAt = 0,
 };
+
+-- BAG_UPDATE can fire several times for one loot, trade, or craft operation.
+-- Wait briefly for all slot changes to arrive, then let the server recalculate
+-- reagent counts from the authoritative inventory state.
+local INVENTORY_REFRESH_DELAY = 0.15;
+local INVENTORY_REFRESH_MIN_INTERVAL = 0.50;
 
 local GetFilteredRecipes;
 local GetFilteredRows;
@@ -370,6 +379,71 @@ local function GetCraftingOrderRecipeTooltipLink(rec)
 end
 
 local ItemTextureCache = {};
+local ItemInfoQueue = {};
+local QueuedItemInfo = {};
+local ItemInfoAttempts = {};
+local ItemInfoQueryElapsed = 0;
+
+-- GetItemInfo returns nil while the local WDB cache is cold.  A hidden
+-- tooltip forces the legacy client to send the corresponding item query.
+local ItemInfoQueryTooltip = _G["CraftingOrderItemInfoQueryTooltip"];
+if not ItemInfoQueryTooltip then
+    ItemInfoQueryTooltip = CreateFrame("GameTooltip", "CraftingOrderItemInfoQueryTooltip", UIParent, "GameTooltipTemplate");
+end
+ItemInfoQueryTooltip:SetOwner(UIParent, "ANCHOR_NONE");
+
+local function QueueItemInfo(itemId)
+    itemId = tonumber(itemId);
+    if not itemId or itemId <= 0 or QueuedItemInfo[itemId] then
+        return;
+    end
+
+    local _, _, _, _, _, _, _, _, texture = GetItemInfo("item:" .. itemId);
+    if texture then
+        ItemTextureCache[itemId] = texture;
+        return;
+    end
+
+    QueuedItemInfo[itemId] = true;
+    table.insert(ItemInfoQueue, itemId);
+end
+
+local function QueueRecipeItemInfo(recipes)
+    for _, rec in ipairs(recipes or {}) do
+        QueueItemInfo(rec.itemId);
+        QueueItemInfo(rec.createdItemId);
+        for _, mat in ipairs(rec.materials or {}) do
+            QueueItemInfo(mat.itemId);
+        end
+    end
+end
+
+local function ProcessItemInfoQueue(elapsed)
+    ItemInfoQueryElapsed = ItemInfoQueryElapsed + (elapsed or 0);
+    if ItemInfoQueryElapsed < 0.05 or table.getn(ItemInfoQueue) == 0 then
+        return;
+    end
+    ItemInfoQueryElapsed = 0;
+
+    local itemId = table.remove(ItemInfoQueue, 1);
+    local itemLink = "item:" .. itemId;
+    local _, _, _, _, _, _, _, _, texture = GetItemInfo(itemLink);
+    if texture then
+        ItemTextureCache[itemId] = texture;
+        if CraftingOrderFrame and CraftingOrderFrame:IsVisible() and CraftingOrderFrame_Update then
+            CraftingOrderFrame_Update();
+        end
+        return;
+    end
+
+    pcall(ItemInfoQueryTooltip.SetHyperlink, ItemInfoQueryTooltip, itemLink);
+    ItemInfoQueryTooltip:Hide();
+
+    ItemInfoAttempts[itemId] = (ItemInfoAttempts[itemId] or 0) + 1;
+    if ItemInfoAttempts[itemId] < 5 then
+        table.insert(ItemInfoQueue, itemId);
+    end
+end
 
 local function GetCraftingOrderItemTexture(itemId)
     if not itemId or itemId <= 0 then
@@ -747,12 +821,58 @@ end
 
 RequestCraftingListPage = function(page)
     page = tonumber(page) or 0;
+    State.lastInventoryRefreshAt = GetTime();
+    State.inventoryRefreshPending = false;
     if State.isHandInMode then
         SendToServer("REQUEST_HANDIN\t" .. page);
     elseif State.isDisenchantMode then
         SendToServer("REQUEST_DISENCHANT_ITEMS\t" .. page);
     else
         SendToServer("REQUEST_RECIPES\t\t0\t" .. page);
+    end
+end
+
+local function QueueInventoryRefresh()
+    if not CraftingOrderFrame or not CraftingOrderFrame:IsVisible() then
+        return;
+    end
+
+    local now = GetTime();
+    if now - (State.lastInventoryRefreshAt or 0) < INVENTORY_REFRESH_MIN_INTERVAL then
+        return;
+    end
+
+    State.inventoryRefreshPending = true;
+    State.inventoryRefreshDelay = INVENTORY_REFRESH_DELAY;
+end
+
+local function ProcessInventoryRefresh(elapsed)
+    if not State.inventoryRefreshPending then
+        return;
+    end
+    if not CraftingOrderFrame or not CraftingOrderFrame:IsVisible() then
+        State.inventoryRefreshPending = false;
+        return;
+    end
+
+    State.inventoryRefreshDelay = State.inventoryRefreshDelay - (elapsed or 0);
+    if State.inventoryRefreshDelay > 0 then
+        return;
+    end
+
+    local now = GetTime();
+    local sinceLast = now - (State.lastInventoryRefreshAt or 0);
+    if sinceLast < INVENTORY_REFRESH_MIN_INTERVAL then
+        State.inventoryRefreshDelay = INVENTORY_REFRESH_MIN_INTERVAL - sinceLast;
+        return;
+    end
+
+    State.inventoryRefreshPending = false;
+    State.lastInventoryRefreshAt = now;
+    if State.selectingEnchantTarget and State.selectedEnchantSpellId then
+        SendToServer("REQUEST_ENCHANT_TARGETS\t" .. State.selectedEnchantSpellId);
+    else
+        RequestCraftingListPage(0);
     end
 end
 
@@ -833,7 +953,7 @@ end
 local function BuildRecipesFromString(dataStr)
     -- Recipe record:
     -- spell/guid,item,name,tier,required skill,fee,output count,available,
-    -- subclass,inventory slot,target bag,target slot,cooldown.
+    -- subclass,inventory slot,target bag,target slot,cooldown remaining.
     local recipes = {};
     if not dataStr or dataStr == "" then
         return recipes;
@@ -1690,6 +1810,7 @@ function OnServerMessage(opcode, payload, page, totalPages)
             State.baseEnchantRecipes = nil;
         end
         local parsed = BuildRecipesFromString(payload);
+        QueueRecipeItemInfo(parsed);
         for _, rec in ipairs(parsed) do
             table.insert(State.recipes, rec);
         end
@@ -1719,6 +1840,7 @@ function OnServerMessage(opcode, payload, page, totalPages)
         State.isHandInMode = true;
         State.isEnchantMode = false;
         local parsed = BuildHandInRecords(payload);
+        QueueRecipeItemInfo(parsed);
         for _, rec in ipairs(parsed) do
             table.insert(State.recipes, rec);
         end
@@ -1758,6 +1880,7 @@ function OnServerMessage(opcode, payload, page, totalPages)
     if op == "ENCHANT_TARGETS" then
         local baseRecipe = FindRecipeBySpellId(State.baseEnchantRecipes or State.recipes, State.selectedEnchantSpellId);
         local spellId, targetRecipes = BuildEnchantTargetRecipes(payload, baseRecipe);
+        QueueRecipeItemInfo(targetRecipes);
         if table.getn(targetRecipes) == 0 then
             ShowResult("No matching item found.", false);
             return;
@@ -2053,6 +2176,11 @@ function CraftingOrderFrame_OnEvent(self, eventName, eventArg1, eventArg2, event
         CraftingOrderFrame_Update();
         return;
     end
+    if eventName == "BAG_UPDATE" or eventName == "ITEM_PUSH" or eventName == "PLAYER_MONEY" or
+        (eventName == "UNIT_INVENTORY_CHANGED" and (not eventArg1 or eventArg1 == "player")) then
+        QueueInventoryRefresh();
+        return;
+    end
     if eventName ~= "CHAT_MSG_ADDON" then
         return;
     end
@@ -2083,6 +2211,14 @@ local CraftingOrderEventFrame = CreateFrame("Frame");
 CraftingOrderEventFrame:RegisterEvent("PLAYER_LOGIN");
 CraftingOrderEventFrame:RegisterEvent("CHAT_MSG_ADDON");
 pcall(CraftingOrderEventFrame.RegisterEvent, CraftingOrderEventFrame, "GET_ITEM_INFO_RECEIVED");
+pcall(CraftingOrderEventFrame.RegisterEvent, CraftingOrderEventFrame, "BAG_UPDATE");
+pcall(CraftingOrderEventFrame.RegisterEvent, CraftingOrderEventFrame, "ITEM_PUSH");
+pcall(CraftingOrderEventFrame.RegisterEvent, CraftingOrderEventFrame, "PLAYER_MONEY");
+pcall(CraftingOrderEventFrame.RegisterEvent, CraftingOrderEventFrame, "UNIT_INVENTORY_CHANGED");
 CraftingOrderEventFrame:SetScript("OnEvent", function(self, eventName, eventArg1, eventArg2, eventArg3, eventArg4)
     CraftingOrderFrame_OnEvent(self, eventName, eventArg1, eventArg2, eventArg3, eventArg4);
+end);
+CraftingOrderEventFrame:SetScript("OnUpdate", function(self, elapsed)
+    ProcessItemInfoQueue(elapsed or arg1 or 0);
+    ProcessInventoryRefresh(elapsed or arg1 or 0);
 end);

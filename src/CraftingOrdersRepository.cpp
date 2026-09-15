@@ -3,6 +3,7 @@
 #include "Log.h"
 #include "Player.h"
 #include "WorldSession.h"
+#include <limits>
 #include <memory>
 
 namespace
@@ -128,12 +129,12 @@ bool CraftingOrders::AddPlayerRecipe(Player* player, uint32 professionId, uint32
     return HasPlayerRecipe(player, professionId, spellId);
 }
 
-bool CraftingOrders::IsOnCooldown(Player* player, uint32 spellId) const
+uint32 CraftingOrders::GetCooldownRemaining(Player* player, uint32 spellId) const
 {
     if (!player || !player->GetSession() || !sCraftingOrdersConfig.EnforceCooldowns())
-        return false;
+        return 0;
     if (!TableExists(CharacterDatabase, "crafting_order_cooldowns"))
-        return false;
+        return 0;
 
     uint64 const now = uint64(time(nullptr));
     std::unique_ptr<QueryResult> result;
@@ -153,7 +154,23 @@ bool CraftingOrders::IsOnCooldown(Player* player, uint32 spellId) const
             uint32(CraftingOrdersDomain::COOLDOWN_SCOPE_CHARACTER),
             player->GetGUIDLow(), spellId, now));
     }
-    return bool(result);
+
+    if (!result)
+        return 0;
+
+    uint64 const cooldownEndTime = result->Fetch()[0].GetUInt64();
+    if (cooldownEndTime <= now)
+        return 0;
+
+    uint64 const remaining = cooldownEndTime - now;
+    return remaining > uint64(std::numeric_limits<uint32>::max())
+        ? std::numeric_limits<uint32>::max()
+        : uint32(remaining);
+}
+
+bool CraftingOrders::IsOnCooldown(Player* player, uint32 spellId) const
+{
+    return GetCooldownRemaining(player, spellId) > 0;
 }
 
 void CraftingOrders::SetCooldown(Player* player, uint32 spellId, uint32 cooldownSecs)
